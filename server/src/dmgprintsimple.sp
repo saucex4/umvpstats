@@ -7,6 +7,9 @@
 
 #include <sourcemod>
 
+new Handle:db = INVALID_HANDLE;
+new hurtCounter = 0;
+
 public Plugin:myinfo = 
 {
 		   name = "Damage Print",
@@ -136,25 +139,48 @@ public OnPluginStart()
 	
 	//HookEvent("smoker_killed", Event_SmokerKilled); //does not exist
 	//HookEvent("boomer_killed", Event_BoomerKilled); //does not exist
-	
-	
+	PrepareConnection();
+}
+
+public OnPluginEnd() {
+	CloseHandle2(db);
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
+	hurtCounter++;
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
+	new String:victimName[50]; 
+	GetEventString(event, "userid",victimName, strlen(victimName));
 	new victimteam = GetClientTeam(victim);
 	new health = GetEventInt(event, "health");
 	new maxhealth = GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff;
 	
 	
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new attackerteam = GetClientTeam(attacker);
+	new String:attackerName[50];
+	GetEventString(event, "attacker", attackerName, strlen(attackerName));
+	
+	
+	new attackerteam;
+	new attackerhealth;
+	new attackermaxhealth;
+	 
+	if (attacker != 0) {
+		attackerteam = GetClientTeam(attacker);
+		attackerhealth = GetClientHealth(attacker);
+		attackermaxhealth = GetEntProp(attacker, Prop_Send, "m_iMaxHealth") & 0xffff;
+	}
+	else {
+		attackerteam = -1;
+		attackerhealth = 0;
+		attackermaxhealth = 0;
+	}
+	
 	new attackerentid = GetEventInt(event, "attackerentid");
 	new damagetype = GetEventInt(event,"type");
-	new attackerhealth = GetClientHealth(attacker);
-	new attackermaxhealth = GetEntProp(attacker, Prop_Send, "m_iMaxHealth") & 0xffff;
 	
-	new String:weapon[50]; 
+	
+	new String:weapon[50];
 	GetEventString(event, "weapon", weapon, 50);
 	new damage = GetEventInt(event, "dmg_health");
 	
@@ -163,17 +189,36 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	// \x03 light-green
 	// \x04 orange 
 	// \x05  green
-	PrintToChatAll("\x03%d \x01dmg to \x04[T:%d][cid:%d] %N (%d/%d) \x01by  \x05[T:%d][cid:%d][eid:%d] %N (%d/%d) with %s : Hitgroup = %d, type = %d", damage, victimteam, victim, victim, health, maxhealth, attackerteam, attacker, attackerentid, attacker, attackerhealth, attackermaxhealth, weapon, hitgroup, damagetype);
-
+	
+	PrepareConnection();
+	new String:queryStr[1024];
+	new String:chatOutput[1024];
+	
+	Format(queryStr, sizeof(queryStr), "INSERT INTO `stats`.`playerhurt` (`damage`, `victimTeam`, `victimId`, `victimName`, `victimHealthLeft`, `victimMaxHealth`, `attackerTeam`, `attackerId`, `attackerName`, `attackerEntId`, `attackerHealthLeft`, `attackerMaxHealth`, `attackerWeapon`, `hitgroup`, `damageType`, `entryId`) VALUES ('%d','%d','%d','%N','%d','%d','%d','%d','%N','%d','%d','%d','%s','%d','%d','%d');",damage, victimteam, victim, victim, health, maxhealth, attackerteam, attacker, attacker, attackerentid , attackerhealth, attackermaxhealth, weapon, hitgroup, damagetype, hurtCounter);
+	Format(chatOutput, sizeof(chatOutput), "\x01[%d] RECORDED: \x03%d \x01dmg to \x04[T:%d][cid:%d] %N (%d/%d) \x01by  \x05[T:%d][cid:%d][eid:%d] %N (%d/%d) with %s : Hitgroup = %d, type = %d", hurtCounter, damage, victimteam, victim, victim, health, maxhealth, attackerteam, attacker, attackerentid, attacker, attackerhealth, attackermaxhealth, weapon, hitgroup, damagetype);
+	//PrintToServer(queryStr);
+	//PrintToChatAll(chatOutput);
+	new Handle:datapack = CreateDataPack();
+	WritePackString(datapack,chatOutput);
+	SQL_TQuery(db, PostQuery, queryStr, datapack, DBPrio_Low);
+	
+	
+	//new String:steamId[256];
+	//GetClientAuthString(attacker,steamId,sizeof(steamId));
+	//new String:vicsteamId[256];
+	//GetClientAuthString(victim,vicsteamId,sizeof(vicsteamId));
+	//PrintToChatAll("Attacker Steam ID: %s, Victim Steam ID: %s", steamId,vicsteamId);
 }
 
+
+/*
 public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	new String:weapon[50]; 
 	GetEventString(event, "weapon", weapon, 50);
 	if (GetEventBool(event,"headshot")) {
-		PrintToChatAll("\x05HEADSHOT! \x04[%d] %N \x01was killed by %N with %s", victim, victim, attacker, weapon);
+		PrintHintTextToAll("\x05HEADSHOT! \x04[%d] %N \x01was killed by %N with %s", victim, victim, attacker, weapon);
 	}
 	else {
 		PrintToChatAll("\x04[%d] %N \x01was killed by %N with %s", victim, victim, attacker, weapon);
@@ -186,6 +231,64 @@ public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
 	new maxhealth = GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff;
 	
 	PrintToChatAll("\x04[%d] %N (%d/%d)\x01has spawned", victim, victim, maxhealth, maxhealth);
+}
+*/
+
+public PostQuery(Handle:owner, Handle:result, const String:error[], any:datapack) {
+	new String:dataStr[1024];
+	ResetPack(datapack, false);
+	ReadPackString(datapack, dataStr, sizeof(dataStr));
+	CloseHandle(datapack);
+	if(strlen(error) > 0) {
+		PrintToServer("QUERY FAILED! Error: %s", error);
+	}
+	else {
+		//PrintToChatAll("printing %s", dataStr);
+	}
+	return;
+}
+
+new conn_last_init = 0;
+bool:PrepareConnection() {
+	if(db != INVALID_HANDLE) {
+		return true;
+	} else {
+		if(GetTime() - conn_last_init > 10) {
+			conn_last_init = GetTime();
+			
+			//decl String:conn_name[128];
+			//GetConVarString(cv_db_conn_name, conn_name, sizeof(conn_name));
+			//if(strlen(conn_name) > 0) {
+			SQL_TConnect(PostConnect, "stats");
+			//} else {
+				//SQL_TConnect(PostConnect, "default");
+			//}
+		}
+		return false;
+	}
+}
+
+public PostConnect(Handle:owner, Handle:conn, const String:error[], any:data) {
+	if(conn == INVALID_HANDLE) {
+		PrintToServer("[UMVPS] Failed to connect to SQL database.  Error: %s", error);
+		LogError("Failed to connect to SQL database.  Error: %s", error);
+	}
+	else {
+		db = conn;
+	}
+}
+
+CloseHandle2(&Handle:target) {
+	new bool:close_test = false;
+	
+	if(target != INVALID_HANDLE) {
+		close_test = CloseHandle(target);
+		if(close_test) {
+			target = INVALID_HANDLE;
+		}
+	}
+	
+	return close_test;
 }
 
 
