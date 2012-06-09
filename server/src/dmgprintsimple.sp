@@ -316,3 +316,95 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 }
 */
 
+//--------------------------------------------------
+// GetPlayerString
+//!
+//! \brief Gets the names of the (four) participating players and concatenates their names into a single string
+//!
+//! \param[out] buf      The string buffer to write to
+//! \param[in] length    the length of the string buffer
+//!
+//! \author guyguy
+//--------------------------------------------------
+GetPlayerString(String:buf[], length)
+{
+	decl String:tmp[256];
+	new numplayers = 0;
+
+	Format(buf, length, "");
+
+	//Calculate who is on what team
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientInGame(i))
+		{
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			{
+				if (numplayers > 0)
+				{
+					Format(tmp, sizeof(tmp), ", ");
+					StrCat(buf, length, tmp);
+				}
+
+				GetClientName(i, tmp, sizeof(tmp));
+				StrCat(buf, length, tmp);
+				numplayers++;
+			}
+		}
+	}
+}
+
+//--------------------------------------------------
+// AddNewClient
+//!
+//! \brief Given a clientid, checks to see if a client already exists in the Players table and if not, adds the client.
+//! \details Designed to work with the OnClientConnect command. For now, different player aliases are not considered.
+//!
+//! \param[in] client the client index
+//!
+//! \author guyguy
+//--------------------------------------------------
+AddNewClient(client)
+{
+	decl String:steamid[64];
+	decl String:ip[64];
+	decl String:country[64];
+	decl String:name[64];
+	decl String:query[500];
+
+	// ensure that the client index is valid and the client is actually connected
+	if (client < 1 || client > MaxClients || !IsClientConnected(client))
+		return;
+
+	// get the steamid, which is used to identify players
+	if (!GetClientAuthString(client, steamid, sizeof(steamid)))
+		return;
+
+	// get the ip address so the country can be determined
+	if (!GetClientIP(client, ip, sizeof(ip)))
+		return;
+
+	// get the country
+	if (!GeoipCountry(ip, country, sizeof(country)))
+		return;
+
+	// get the player name
+	if (!GetClientName(client, name, sizeof(name)))
+		return;
+
+	// create a query string for inserting the data into the table
+	Format(query, sizeof(query), "REPLACE INTO player (steamID, name) VALUES (%s, %s)", steamid, name);
+	SQL_TQuery(db, PostQueryDoNothing, query);
+}
+
+//--------------------------------------------------
+// PostQueryDoNothing
+//!
+//! \brief Callback required for SQL queries, which does nothing
+//--------------------------------------------------
+public PostQueryDoNothing(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	//
+}
