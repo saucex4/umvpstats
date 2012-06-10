@@ -53,28 +53,39 @@ public OnPluginStart() {
 	HookEvent("round_end ", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
 	RegConsoleCmd("sm_stats", Command_Kills);
-
+	RegConsoleCmd("sm_resetstats", ResetStats);
 }
-	survivorKills[MAXPLAYERS + 1][8];
-	survivorDmg[MAXPLAYERS + 1][8];
-								     // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-	survivorHeadShots[MAXPLAYERS + 1];
-	survivorFFDmg[MAXPLAYERS + 1];
 
 public Action:Command_Kills(client, args) {
 	PrintStats();
 }
 
 PrintStats() {
-	
+	for(new i = 0; i < MAXPLAYERS + 1; i++) {
+			PrintToChatAll("%N Head:%d FF:%d CI:%d(%d) H:%d(%d) J:%d(%d) C:%d(%d) SP:%d(%d) B:%d(%d) SM:%d(%d) T:%d(%d)", i, survivorHeadShots[i],survivorFFDmg[i],
+																																  survivorKills[i][COMMON],survivorDmg[i][COMMON],
+																																  survivorKills[i][HUNTER],survivorDmg[i][HUNTER],
+																																  survivorKills[i][JOCKEY],survivorDmg[i][JOCKEY],
+																																  survivorKills[i][CHARGER],survivorDmg[i][CHARGER],
+																																  survivorKills[i][SPITTER],survivorDmg[i][SPITTER],
+																																  survivorKills[i][BOOMER],survivorDmg[i][BOOMER],
+																																  survivorKills[i][SMOKER],survivorDmg[i][SMOKER],
+																																  survivorKills[i][TANK],survivorDmg[i][TANK]);
+	}
 }
 
-PrintTankStats() {
-
+PrintTankStats(victim) {
+	for(new i = 0; i < MAXPLAYERS + 1; i++) {
+		if (survivorDmgToTank[i][victim] != 0) {
+			PrintToChatAll("%N %d", i, survivorDmgToTank[i][victim]);
+			survivorDmgToTank[i][victim] = 0; //reset
+		}
+	}
+	tankClients[victim] = false;
 }
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
-	ResetStats();
+	ResetStats(0,0);
 }
 
 public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -83,7 +94,7 @@ public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) 
 	GetClientName(victim, victimName, strlen(victimName));
 	
 	if (StrContains(victimName, "Tank") != -1) {
-		PrintTankStats()
+		PrintTankStats(victim);
 	}
 }
 
@@ -136,22 +147,22 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				if (StrContains(victimName, "Hunter") != -1) {
 					survivorDmg[attacker][HUNTER] += damage;
                 }
-                else if (StrContains(victimName, "Jockey") != -1) {
+				else if (StrContains(victimName, "Jockey") != -1) {
 					survivorDmg[attacker][JOCKEY] += damage;
                 }
-                else if (StrContains(victimName, "Charger") != -1) {
+				else if (StrContains(victimName, "Charger") != -1) {
 					survivorDmg[attacker][CHARGER] += damage;
                 }
-                else if (StrContains(victimName, "Spitter") != -1) {
+				else if (StrContains(victimName, "Spitter") != -1) {
 					survivorDmg[attacker][SPITTER] += damage;
                 }
-                else if (StrContains(victimName, "Boomer") != -1) {
+				else if (StrContains(victimName, "Boomer") != -1) {
 					survivorDmg[attacker][BOOMER] += damage;
                 }
-                else if (StrContains(victimName, "Smoker") != -1) {
+				else if (StrContains(victimName, "Smoker") != -1) {
 					survivorDmg[attacker][SMOKER] += damage;
                 }
-                else if (StrContains(victimName, "Tank") != -1) {
+				else if (StrContains(victimName, "Tank") != -1) {
 					//deal with multiple tanks here
 					if (tankClients[victim]) { //if this tank is alive record
 						if (tankHealth[victim] <= 0) {
@@ -175,27 +186,27 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
                 {
                     survivorKills[attacker][HUNTER]++;
                 }
-                else if (StrContains(victimName, "Jockey") != -1)
+				else if (StrContains(victimName, "Jockey") != -1)
                 {
                      survivorKills[attacker][JOCKEY]++;
                 }
-                else if (StrContains(victimName, "Charger") != -1)
+				else if (StrContains(victimName, "Charger") != -1)
                 {
                     survivorKills[attacker][CHARGER]++;
                 }
-                else if (StrContains(victimName, "Spitter") != -1)
+				else if (StrContains(victimName, "Spitter") != -1)
                 {
 					survivorKills[attacker][SPITTER]++;
                 }
-                else if (StrContains(victimName, "Boomer") != -1)
+				else if (StrContains(victimName, "Boomer") != -1)
                 {
 					survivorKills[attacker][BOOMER]++;
                 }
-                else if (StrContains(victimName, "Smoker") != -1)
+				else if (StrContains(victimName, "Smoker") != -1)
                 {
 					survivorKills[attacker][SMOKER]++;
                 }
-                else if (StrContains(victimName, "Tank") != -1)
+				else if (StrContains(victimName, "Tank") != -1)
                 {
 					survivorKills[attacker][TANK]++;
                 }
@@ -226,15 +237,17 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (attacker && attacker <= MaxClients)
 	{
-		// retrieve the damage and hitgroup
-		damage    = GetEventInt(event, "amount");
-		hitgroup  = GetEventInt(event, "hitgroup");
+		if(attackerTeam == TEAM_SURVIVOR) {
+			// retrieve the damage and hitgroup
+			damage    = GetEventInt(event, "amount");
+			hitgroup  = GetEventInt(event, "hitgroup");
 
-		survivorDmg[attacker][COMMON] += damage;
+			survivorDmg[attacker][COMMON] += damage;
 
-		// check for a headshot
-		if (hitgroup == 1) {
-			survivorHeadShots[attacker]++;
+			// check for a headshot
+			if (hitgroup == 1) {
+				survivorHeadShots[attacker]++;
+			}
 		}
 	}
 }
@@ -249,7 +262,10 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (attacker && attacker <= MaxClients)
 	{
-		survivorKills[attacker][COMMON]++;
+		if(attackerTeam == TEAM_SURVIVOR) 
+		{
+			survivorKills[attacker][COMMON]++;
+		}
 	}
 }
 
@@ -262,11 +278,12 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 //!
 //! \brief Use this function to reset the kill and damage arrays to zero
 //--------------------------------------------------
-ResetStats() {
+public Action:ResetStats(client, args) {
 	for (new i = 0; i < MAXPLAYERS + 1; i++) {
 		for (new j = 0; j < 8; j++) {
 			survivorKills[i][j] = 0;
 			survivorDmg[i][j] = 0;
+			survivorDmgToTank[i][j] = 0;
 		}
 		survivorHeadShots[i] = 0;
 		survivorFFDmg[i] = 0;
