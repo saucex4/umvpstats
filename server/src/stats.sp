@@ -22,6 +22,11 @@ new const BOOMER  = 5;
 new const SMOKER  = 6;
 new const TANK    = 7;
 
+// Constants for the different teams----------------
+const TEAM_NONE       = 0;
+const TEAM_SPECTATOR  = 1;
+const TEAM_SURVIVOR   = 2;
+const TEAM_INFECTED   = 3;
 
 
 public Plugin:myinfo = {
@@ -60,7 +65,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new String:attackerSteamID[20];
+	new String:attackerSteamID[21];
 	GetClientAuthString(attacker,attackerSteamID, strlen(attackerSteamID));
 	new attackerTeam = GetClientTeam(attacker);
 	
@@ -101,15 +106,41 @@ public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new String:attackerSteamID[20];
-	GetClientAuthString(attacker,attackerSteamID, sizeof(attackerSteamID));
+	new String:attackerSteamID[21];
+
+	GetClientAuthString(attacker, attackerSteamID, sizeof(attackerSteamID));
 	new attackerTeam = GetClientTeam(attacker);
-	
-	
+	new damage = 0;
+	new hitgroup;
+
+	//Only process if the player is a legal attacker (i.e., a player)
+	if (attacker && attacker <= MaxClients)
+	{
+		// retrieve the damage and hitgroup
+		damage    = GetEventInt(event, "amount");
+		hitgroup  = GetEventInt(event, "hitgroup");
+
+		survivorDmg[attacker][COMMON] += damage;
+
+		// check for a headshot
+		if (hitgroup == 1) {
+			survivorHeadShots[attacker]++;
+		}
+	}
 }
 
 public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
+	//attacker info
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	new String:attackerSteamID[21];
+	GetClientAuthString(attacker, attackerSteamID, sizeof(attackerSteamID));
+	new attackerTeam = GetClientTeam(attacker);
 
+	//Only process if the player is a legal attacker (i.e., a player)
+	if (attacker && attacker <= MaxClients)
+	{
+		survivorKills[attacker][COMMON]++;
+	}
 }
 
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -123,3 +154,48 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 	*/
 }
 
+//--------------------------------------------------
+// ResetStats
+//!
+//! \brief Use this function to reset the kill and damage arrays to zero
+//--------------------------------------------------
+ResetStats() {
+	for (new i = 0; i < MAXPLAYERS + 1; i++) {
+		for (new j = 0; j < 8; j++) {
+			survivorKills[i][j] = 0;
+			survivorDmg[i][j] = 0;
+		}
+		survivorHeadShots[i] = 0;
+		survivorFFDmg[i] = 0;
+	}
+}
+
+//--------------------------------------------------
+// TotalDamage
+//!
+//! \brief Adds up all damages and puts the totals into the array
+//!
+//! \param[out] total_array An existing array of 8 integers (7 SI and 1 Common). This will store the total damage outputs.
+//! \param[out] total_array An existing array of 8 integers (7 SI and 1 Common). This will store the total kill outputs.
+//--------------------------------------------------
+TotalDamage(total_damage_array[], total_kills_array[]) {
+	// first zero out the array
+	for (new i = 0; i < 8; i++) {
+		total_array[i] = 0;
+	}
+
+	// now add all damages from the different clients that are connected and on the survivor team
+	for (new i = 1; i <= MaxClients; i++) {
+		if (IsClientConnected(i) && IsClientInGame(i)) {
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i)) {
+				// go through the 8 different types of infected (7 SI, 1 common)
+				for (new j = 0; j < 8; j++) {
+					total_kills_array[j] += survivorKills[i][j];
+					total_damage_array[j] += survivorDmg[i][j];
+				} // end inner for loop
+			}
+		}
+	} // end outer for loop
+}
