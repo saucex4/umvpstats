@@ -6,6 +6,7 @@
 #pragma semicolon 1
 
 #include <sourcemod>
+new bool:survivor[MAXPLAYERS + 1];
 new survivorKills[MAXPLAYERS + 1][8]; //stores the kills for each survivor for each SI type
 new survivorDmg[MAXPLAYERS + 1][8];   //stores the kills for each survivor for each SI type
 								     // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
@@ -50,7 +51,7 @@ public OnPluginStart() {
 	HookEvent("infected_death", Event_InfectedDeath);
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("tank_spawn", Event_TankSpawn);
-	HookEvent("round_end ", Event_RoundEnd);
+	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
 	RegConsoleCmd("sm_stats", Command_Kills);
 	RegConsoleCmd("sm_resetstats", ResetStats);
@@ -61,7 +62,8 @@ public Action:Command_Kills(client, args) {
 }
 
 PrintStats() {
-	for(new i = 0; i < MAXPLAYERS + 1; i++) {
+	for(new i = 1; i < MAXPLAYERS + 1; i++) {
+		if(survivor[i]) {
 			PrintToChatAll("%N Head:%d FF:%d CI:%d(%d) H:%d(%d) J:%d(%d) C:%d(%d) SP:%d(%d) B:%d(%d) SM:%d(%d) T:%d(%d)", i, survivorHeadShots[i],survivorFFDmg[i],
 																																  survivorKills[i][COMMON],survivorDmg[i][COMMON],
 																																  survivorKills[i][HUNTER],survivorDmg[i][HUNTER],
@@ -71,6 +73,7 @@ PrintStats() {
 																																  survivorKills[i][BOOMER],survivorDmg[i][BOOMER],
 																																  survivorKills[i][SMOKER],survivorDmg[i][SMOKER],
 																																  survivorKills[i][TANK],survivorDmg[i][TANK]);
+		}
 	}
 }
 
@@ -126,7 +129,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	if (attacker != 0) { //check if the attacker is Console/World if not then move forward
 
 		if(attackerTeam == TEAM_SURVIVOR) { //survivor damage including bots
-			
+			survivor[attacker] = true;
 			//record survivor attack
 			if (hitgroup == 1) {
 				survivorHeadShots[attacker]++;
@@ -238,6 +241,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	if (attacker && attacker <= MaxClients)
 	{
 		if(attackerTeam == TEAM_SURVIVOR) {
+			survivor[attacker] = true;
 			// retrieve the damage and hitgroup
 			damage    = GetEventInt(event, "amount");
 			hitgroup  = GetEventInt(event, "hitgroup");
