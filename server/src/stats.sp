@@ -6,8 +6,8 @@
 #pragma semicolon 1
 
 #include <sourcemod>
-new survivorKills[MAXPLAYERS + 1][7] //stores the kills for each survivor for each SI type
-new survivorDmgToSI[MAXPLAYERS + 1][7] //stores the kills for each survivor for each SI type
+new survivorKills[MAXPLAYERS + 1][8] //stores the kills for each survivor for each SI type
+new survivorDmg[MAXPLAYERS + 1][8] //stores the kills for each survivor for each SI type
 									   // 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 new survivorHeadShots[MAXPLAYERS + 1];
 new survivorFFDmg[MAXPLAYERS + 1];
