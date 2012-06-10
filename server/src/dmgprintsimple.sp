@@ -17,10 +17,40 @@ new Handle:db = INVALID_HANDLE;
 new hurtCounter = 0;
 
 // Constants for the different teams----------------
-const TEAM_NONE       = 0;
-const TEAM_SPECTATOR  = 1;
-const TEAM_SURVIVOR   = 2;
-const TEAM_INFECTED   = 3;
+new const TEAM_NONE       = 0;
+new const TEAM_SPECTATOR  = 1;
+new const TEAM_SURVIVOR   = 2;
+new const TEAM_INFECTED   = 3;
+
+// Constants for map names--------------------------
+new const NUM_OFFICIAL_MAPS_2 = 10;
+new String:OFFICIAL_MAPS_2[][64] =
+{
+	"c2m1_highway",
+	"c2m4_barns",
+	"c2m5_concert",
+	"c3m1_plankcountry",
+	"c3m4_plantation",
+	"c4m1_milltown_a",
+	"c4m2_milltown_b",
+	"c5m2_park",
+	"c5m5_bridge",
+	"c1m4_atrium"
+};
+new String:CAMPAIGNS_2[][64] =
+{
+	"Dark Carnival",
+	"Dark Carnival",
+	"Dark Carnival",
+	"Swamp Fever",
+	"Swamp Fever",
+	"Hard Rain",
+	"Hard Rain",
+	"Bus Depot",
+	"Bus Depot",
+	"Dead Center"
+};
+
 
 public Plugin:myinfo = 
 {
@@ -157,6 +187,8 @@ public OnPluginStart()
 	RegConsoleCmd("sm_umvp_output_player_table", Command_OutputPlayerTable);
 	RegConsoleCmd("sm_umvp_help", Command_Help);
 	RegConsoleCmd("sm_umvp_connect_test_db", Command_ConnectTestDB);
+	RegConsoleCmd("sm_add_official_maps", Command_AddOfficialMaps);
+	RegConsoleCmd("sm_umvp_output_maps_table", Command_OutputMapsTable);
 
 	PrepareConnection();
 }
@@ -336,6 +368,31 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 */
 
 //==================================================
+// SQL Commands
+//==================================================
+
+new const NUM_TEST_COMMANDS = 16;
+new String:sql_test_commands[][1024] =
+{
+	"DROP TABLE IF EXISTS player;",
+	"CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, url VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID));",
+	"DROP TABLE IF EXISTS weapon;",
+	"CREATE TABLE IF NOT EXISTS weapon(weaponID INTEGER, name VARCHAR(45), type INTEGER NULL, PRIMARY KEY (weaponID));",
+	"DROP TABLE IF EXISTS maps;",
+	"CREATE TABLE IF NOT EXISTS maps(mapID INTEGER, mapName VARCHAR(45), campaignName VARCHAR(45) NULL, url VARCHAR(255) NULL, game INTEGER, PRIMARY KEY (mapID));",
+	"DROP TABLE IF EXISTS record;",
+	"CREATE TABLE IF NOT EXISTS record(recordID INTEGER, duration INTEGER, mapID INTEGER, PRIMARY KEY (recordID));",
+	"DROP TABLE IF EXISTS gameClient;",
+	"CREATE TABLE IF NOT EXISTS gameClient(entryID INTEGER, modelID INTEGER, steamID VARCHAR(20), birthTime INTEGER, deathTime INTEGER, PRIMARY KEY (entryID));",
+	"DROP TABLE IF EXISTS team;",
+	"CREATE TABLE IF NOT EXISTS team(teamID INTEGER, steamID VARCHAR(20), recordID INTEGER, teamType INTEGER, birthTime INTEGER, deathTime INTEGER, PRIMARY KEY teamID);",
+	"DROP TABLE IF EXISTS modelTypes;",
+	"CREATE TABLE IF NOT EXISTS modelTypes(modelID INTEGER, steamID VARCHAR(45), modelType INTEGER, PRIMARY KEY modelID);",
+	"DROP TABLE IF EXISTS damage;",
+	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER, weaponID INTEGER, damageType INTEGER, kill INTEGER, attacker INTEGER, aRemainingHealth INTEGER, aMaxHealth INTEGER, aPositionX FLOAT, aPositionY FLOAT, aPositionZ FLOAT, aLatency INTEGER, aLoss INTEGER, aChoke INTEGER, aPackets INTEGER, victimSteamID VARCHAR(20), vRemainingHealth INTEGER, vMaxHealth VARCHAR(45), vPositionX FLOAT, vPositionY FLOAT, vPositionZ FLOAT, vLatency INTEGER, vLoss INTEGER, vChoke INTEGER, vPackets INTEGER, PRIMARY KEY entryID);"
+};
+
+//==================================================
 // Commands
 //==================================================
 
@@ -346,7 +403,7 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 //--------------------------------------------------
 public Action:Command_Help(client, args)
 {
-	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help\nsm_umvp_connect_test_db");
+	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help\nsm_umvp_connect_test_db\nsm_add_official_maps\nsm_umvp_output_maps_table");
 }
 
 //--------------------------------------------------
@@ -360,7 +417,7 @@ public Action:Command_ConnectTestDB(client, args)
 
 	// connect to the test database (SQLite)
 	new Handle:keyval = CreateKeyValues("Test Database Connect");
-	KvSetString(keval, "driver", "sqlite");
+	KvSetString(keyval, "driver", "sqlite");
 	KvSetString(keyval, "host", "localhost");
 	KvSetString(keyval, "database", "umvp_test");
 
@@ -372,18 +429,16 @@ public Action:Command_ConnectTestDB(client, args)
 	db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
 	CloseHandle(keyval);
 
-	// execute some SQL statements to setup the tables
-	new Handle:query;
-	if (!(SQL_FastQuery(db, "DROP TABLE IF EXISTS player")))
-	{
-		SQL_GetError(db, error, sizeof(error));
-		PrintToConsole(client, error);
-	}
 
-	if (!(SQL_FastQuery(db, "CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, url VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID))")))
+	for (new i = 0; i < NUM_TEST_COMMANDS; i++)
 	{
-		SQL_GetError(db, error, sizeof(error));
-		PrintToConsole(client, error);
+		new Handle:query;
+		if (!(SQL_FastQuery(db, sql_test_commands[i])))
+		{
+			SQL_GetError(db, error, sizeof(error));
+			PrintToConsole(client, error);
+		}
+		CloseHandle2(query);
 	}
 }
 
@@ -399,6 +454,17 @@ public Action:Command_AddPlayerToDB(client, args)
 }
 
 //--------------------------------------------------
+// Command_OutputMapsTable
+//!
+//! \brief This command is used to output the entire maps table to console.
+//--------------------------------------------------
+public Action:Command_OutputMapsTable(client, args)
+{
+	QueryMaps(client);
+}
+
+
+//--------------------------------------------------
 // Command_OutputPlayerTable
 //!
 //! \brief This command is used to output the entire player table to console.
@@ -408,9 +474,37 @@ public Action:Command_OutputPlayerTable(client, args)
 	QueryPlayers(client);
 }
 
+//--------------------------------------------------
+// Command_AddOfficialMaps
+//!
+//! \brief This command is used to add the official maps into the maps table
+//--------------------------------------------------
+public Action:Command_AddOfficialMaps(client, args)
+{
+	AddOfficialMaps();
+}
+
 //==================================================
 // Helper Functions and Callbacks
 //==================================================
+
+//--------------------------------------------------
+// AddOfficialMaps
+//!
+//! \brief Adds the official maps into the maps table
+//! \details Uses the global string arrays OFFICIAL_MAPS_2 and CAMPAIGNS to fill in information for the official maps.
+//--------------------------------------------------
+AddOfficialMaps()
+{
+	decl String:query[500];
+
+	for (new i = 0; i < NUM_OFFICIAL_MAPS_2; i++)
+	{
+		// create the SQL insert command to insert the official maps
+		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (%s, %s, 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
+		SQL_TQuery(db, PostQueryDoNothing, query);
+	}
+}
 
 //--------------------------------------------------
 // GetPlayerString
@@ -521,7 +615,6 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 	decl String:buf[256];
 	decl String:steamid[64];
 	decl String:name[64];
-	new Handle:query;
 
 	new length = SQL_GetRowCount(result);
 	new client = data;
@@ -530,9 +623,53 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 
 	while (SQL_FetchRow(result))
 	{
-		SQL_FetchString(query, 0, steamid, sizeof(steamid));
-		SQL_FetchString(query, 1, name, sizeof(name));
+		SQL_FetchString(result, 0, steamid, sizeof(steamid));
+		SQL_FetchString(result, 1, name, sizeof(name));
 		Format(buf, sizeof(buf), "%s %s", steamid, name);
+		WritePackString(dataPackHandle, buf);
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryMaps
+//!
+//! \brief Queries the database for the maps in the maps table
+//--------------------------------------------------
+QueryMaps(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT (mapName, campaignName) FROM maps ORDER BY mapName");
+	SQL_TQuery(db, PostQueryMaps, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryMaps
+//!
+//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the players in the database.
+//--------------------------------------------------
+public PostQueryMaps(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:mapName[64];
+	decl String:campaignName[64];
+
+	new length = SQL_GetRowCount(result);
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, mapName, sizeof(mapName));
+		SQL_FetchString(result, 1, campaignName, sizeof(campaignName));
+		Format(buf, sizeof(buf), "%s %s", mapName, campaignName);
 		WritePackString(dataPackHandle, buf);
 	}
 
