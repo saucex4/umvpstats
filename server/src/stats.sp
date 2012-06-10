@@ -49,7 +49,7 @@ public OnPluginStart() {
 	HookEvent("player_hurt", Event_PlayerHurt);
 	HookEvent("infected_hurt", Event_InfectedHurt);
 	HookEvent("infected_death", Event_InfectedDeath);
-	HookEvent("player_death", Event_PlayerDeath);
+	//HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("tank_spawn", Event_TankSpawn);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
@@ -84,21 +84,11 @@ PrintTankStats(victim) {
 			survivorDmgToTank[i][victim] = 0; //reset
 		}
 	}
-	tankClients[victim] = false;
+	
 }
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 	ResetStats(0,0);
-}
-
-public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) {
-	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
-	new String:victimName[40];
-	GetClientModel(victim, victimName, strlen(victimName));
-	
-	if (StrContains(victimName, "Tank") != -1) {
-		PrintTankStats(victim);
-	}
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -110,14 +100,12 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new victimRemainingHealth = GetEventInt(event, "health");
 	new String:victimName[40];
-	GetClientModel(victim, victimName, strlen(victimName));
+	GetClientModel(victim, victimName, sizeof(victimName));
 	new victimTeam = GetClientTeam(victim);
 	
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new String:attackerSteamID[21];
-	GetClientAuthString(attacker,attackerSteamID, strlen(attackerSteamID));
-	new attackerTeam = GetClientTeam(attacker);
+	
 	
 	/*
 	Conditions for collection
@@ -127,11 +115,11 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	*/
 	
 	if (attacker != 0) { //check if the attacker is Console/World if not then move forward
-
+		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) { //survivor damage including bots
 			survivor[attacker] = true;
 			//record survivor attack
-			if (hitgroup == 1) {
+			if ((hitgroup == 1) && (victimTeam != TEAM_SURVIVOR)) {
 				survivorHeadShots[attacker]++;
 				//gets rid of number before SI name
 				if (victimName[0] == '(') {
@@ -144,9 +132,11 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 			if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
 				survivorFFDmg[attacker] += damage;
 			}
-			
 			if((damage > 0) && (victimTeam == TEAM_INFECTED)) { //record damage
 				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
+				if(/* damage done surpasses SI health*/) {
+					// damage = remain
+				}
 				if (StrContains(victimName, "Hunter", false) != -1) {
 					survivorDmg[attacker][HUNTER] += damage;
                 }
@@ -165,17 +155,20 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				else if (StrContains(victimName, "Smoker", false) != -1) {
 					survivorDmg[attacker][SMOKER] += damage;
                 }
-				else if (StrContains(victimName, "Tank", false) != -1) {
+				else if (StrContains(victimName, "Hulk", false) != -1) {
 					//deal with multiple tanks here
 					if (tankClients[victim]) { //if this tank is alive record
-						if (tankHealth[victim] <= 0) {
+						if ((tankHealth[victim] <= 0) || (victimRemainingHealth > tankHealth[victim])) {
+							survivorDmgToTank[attacker][victim] += tankHealth[victim];
+							survivorDmg[attacker][TANK] += tankHealth[victim];
 							tankClients[victim] = false;
 							tankHealth[victim] = 0;
+							PrintTankStats(victim);
 						}
 						else {
 							tankHealth[victim] -= damage;
 							survivorDmg[attacker][TANK] += damage;
-							survivorDmgToTank[attacker][victim] -= damage; //Do we count the damage that exceeds the tank's health?
+							survivorDmgToTank[attacker][victim] += damage; //Do we count the damage that exceeds the tank's health?
 						}
 					}
                 }
@@ -201,7 +194,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
                 {
 					survivorKills[attacker][SPITTER]++;
                 }
-				else if (StrContains(victimName, "Boomer", false) != -1)
+				else if (StrContains(victimName, "Boome", false) != -1)
                 {
 					survivorKills[attacker][BOOMER]++;
                 }
@@ -209,7 +202,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
                 {
 					survivorKills[attacker][SMOKER]++;
                 }
-				else if (StrContains(victimName, "Tank", false) != -1)
+				else if (StrContains(victimName, "Hulk", false) != -1)
                 {
 					survivorKills[attacker][TANK]++;
                 }
@@ -222,7 +215,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 }
 
 public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
-	new tankId = GetEventInt(event,"tankid");
+	new tankId = GetClientOfUserId(GetEventInt(event,"userid"));
 	tankClients[tankId] = true;
 	tankHealth[tankId] = GetEntProp(tankId, Prop_Send, "m_iMaxHealth") & 0xffff;
 }
@@ -230,16 +223,15 @@ public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new String:attackerSteamID[21];
 
-	GetClientAuthString(attacker, attackerSteamID, sizeof(attackerSteamID));
-	new attackerTeam = GetClientTeam(attacker);
+	
 	new damage = 0;
 	new hitgroup;
 
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (attacker && attacker <= MaxClients)
 	{
+		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) {
 			survivor[attacker] = true;
 			// retrieve the damage and hitgroup
@@ -259,13 +251,12 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new String:attackerSteamID[21];
-	GetClientAuthString(attacker, attackerSteamID, sizeof(attackerSteamID));
-	new attackerTeam = GetClientTeam(attacker);
+	
 
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (attacker && attacker <= MaxClients)
 	{
+		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) 
 		{
 			survivorKills[attacker][COMMON]++;
