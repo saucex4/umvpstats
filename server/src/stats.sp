@@ -6,9 +6,8 @@
 #pragma semicolon 1
 
 #include <sourcemod>
-new String:survivor[255][21]
-new survivorKills[MAXPLAYERS + 1][8] //stores the kills for each survivor for each SI type
-new survivorDmg[MAXPLAYERS + 1][8]   //stores the kills for each survivor for each SI type
+new survivorKills[MAXPLAYERS + 1][8]; //stores the kills for each survivor for each SI type
+new survivorDmg[MAXPLAYERS + 1][8];   //stores the kills for each survivor for each SI type
 								     // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 new survivorHeadShots[MAXPLAYERS + 1];
 new survivorFFDmg[MAXPLAYERS + 1];
@@ -59,7 +58,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//victim info
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new victimRemainingHealth = GetEventInt(event, "health");
-	new victimName[40];
+	new String:victimName[40];
 	GetClientName(victim, victimName, strlen(victimName));
 	new victimTeam = GetClientTeam(victim);
 	
@@ -82,39 +81,38 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 			
 			//record survivor attack
 			if (hitgroup == 1) {
-				survivorHeadShots[]++
+				survivorHeadShots[attacker]++;
 				//gets rid of number before SI name
-				if (victimName[0] == "(") {
-					victimName[0] = "";
-					victimName[1] = "";
-					victimName[2] = "";
+				if (victimName[0] == '(') {
+					victimName[0] = ' ';
+					victimName[1] = ' ';
+					victimName[2] = ' ';
 				}
 				PrintToChatAll("HEADSHOT by %N on %N",attacker, TrimString(victimName));
 			}
 			
 			if (victimTeam == 1) { //record friendly fire
-				survivorFFDmg[] += damage;
+				survivorFFDmg[attacker] += damage;
 			}
 			else if(damage > 0) { //record damage
-				
 				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 				if (StrContains(victimName, "Hunter") != -1) {
-					survivorDmg[][1] += damage;
+					survivorDmg[attacker][HUNTER] += damage;
                 }
                 else if (StrContains(victimName, "Jockey") != -1) {
-					survivorDmg[][2] += damage;
+					survivorDmg[attacker][JOCKEY] += damage;
                 }
                 else if (StrContains(victimName, "Charger") != -1) {
-					survivorDmg[][3] += damage;
+					survivorDmg[attacker][CHARGER] += damage;
                 }
                 else if (StrContains(victimName, "Spitter") != -1) {
-					survivorDmg[][4] += damage;
+					survivorDmg[attacker][SPITTER] += damage;
                 }
                 else if (StrContains(victimName, "Boomer") != -1) {
-					survivorDmg[][5] += damage;
+					survivorDmg[attacker][BOOMER] += damage;
                 }
                 else if (StrContains(victimName, "Smoker") != -1) {
-					survivorDmg[][6] += damage;
+					survivorDmg[attacker][SMOKER] += damage;
                 }
                 else if (StrContains(victimName, "Tank") != -1) {
 					//deal with multiple tanks here
@@ -125,7 +123,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 						}
 						else {
 							tankHealth[victim] -= damage;
-							survivorDmg[][7] += damage;
+							survivorDmg[attacker][TANK] += damage;
 						}
 					}
                 }
@@ -137,31 +135,31 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 				if (StrContains(victimName, "Hunter") != -1)
                 {
-                    survivorKills[][1]++;
+                    survivorKills[attacker][HUNTER]++;
                 }
                 else if (StrContains(victimName, "Jockey") != -1)
                 {
-                     survivorKills[][2]++;
+                     survivorKills[attacker][JOCKEY]++;
                 }
                 else if (StrContains(victimName, "Charger") != -1)
                 {
-                    survivorKills[][3]++;
+                    survivorKills[attacker][CHARGER]++;
                 }
                 else if (StrContains(victimName, "Spitter") != -1)
                 {
-					survivorKills[][4]++;
+					survivorKills[attacker][SPITTER]++;
                 }
                 else if (StrContains(victimName, "Boomer") != -1)
                 {
-					survivorKills[][5]++;
+					survivorKills[attacker][BOOMER]++;
                 }
                 else if (StrContains(victimName, "Smoker") != -1)
                 {
-					survivorKills[][6]++;
+					survivorKills[attacker][SMOKER]++;
                 }
                 else if (StrContains(victimName, "Tank") != -1)
                 {
-					survivorKills[][7]++;
+					survivorKills[attacker][TANK]++;
                 }
 				
 			}
@@ -174,7 +172,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
 	new tankId = GetEventInt(event,"tankid");
 	tankClients[tankId] = true;
-	tankHealth[tankId] = GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff;
+	tankHealth[tankId] = GetEntProp(tankId, Prop_Send, "m_iMaxHealth") & 0xffff;
 }
 
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
