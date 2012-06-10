@@ -156,6 +156,7 @@ public OnPluginStart()
 	RegConsoleCmd("sm_umvp_add_player", Command_AddPlayerToDB);
 	RegConsoleCmd("sm_umvp_output_player_table", Command_OutputPlayerTable);
 	RegConsoleCmd("sm_umvp_help", Command_Help);
+	RegConsoleCmd("sm_umvp_connect_test_db", Command_ConnectTestDB);
 
 	PrepareConnection();
 }
@@ -345,7 +346,7 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 //--------------------------------------------------
 public Action:Command_Help(client, args)
 {
-	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help");
+	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help\nsm_umvp_connect_test_db");
 }
 
 //--------------------------------------------------
@@ -355,7 +356,35 @@ public Action:Command_Help(client, args)
 //--------------------------------------------------
 public Action:Command_ConnectTestDB(client, args)
 {
-	//new Handle:keyval = CreateKeyValues(
+	decl String:error[256];
+
+	// connect to the test database (SQLite)
+	new Handle:keyval = CreateKeyValues("Test Database Connect");
+	KvSetString(keval, "driver", "sqlite");
+	KvSetString(keyval, "host", "localhost");
+	KvSetString(keyval, "database", "umvp_test");
+
+	// used to set the username and pw
+	//KvSetString(keyval, "user", "root");
+	//KvSetString(keyval, "pass", "");
+
+	CloseHandle2(db);
+	db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+	CloseHandle(keyval);
+
+	// execute some SQL statements to setup the tables
+	new Handle:query;
+	if (!(SQL_FastQuery(db, "DROP TABLE IF EXISTS player")))
+	{
+		SQL_GetError(db, error, sizeof(error));
+		PrintToConsole(client, error);
+	}
+
+	if (!(SQL_FastQuery(db, "CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, url VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID))")))
+	{
+		SQL_GetError(db, error, sizeof(error));
+		PrintToConsole(client, error);
+	}
 }
 
 //--------------------------------------------------
