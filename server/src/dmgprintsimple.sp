@@ -155,7 +155,7 @@ public OnPluginStart()
 	// Console commands added by the plugin-------------
 	RegConsoleCmd("sm_umvp_add_player", Command_AddPlayerToDB);
 	RegConsoleCmd("sm_umvp_output_player_table", Command_OutputPlayerTable);
-	RegConsoleCmd("sm_umvp_help, Command_Help");
+	RegConsoleCmd("sm_umvp_help", Command_Help);
 
 	PrepareConnection();
 }
@@ -349,6 +349,16 @@ public Action:Command_Help(client, args)
 }
 
 //--------------------------------------------------
+// Command_ConnectTestDB
+//!
+//! \brief Connects to the test SQLite database
+//--------------------------------------------------
+public Action:Command_ConnectTestDB(client, args)
+{
+	//new Handle:keyval = CreateKeyValues(
+}
+
+//--------------------------------------------------
 // Command_AddPlayerToDB
 //!
 //! \brief This command is used to add the current player to the player database
@@ -429,7 +439,7 @@ AddNewClient(client)
 {
 	decl String:steamid[64];
 	decl String:ip[64];
-	decl String:country[64];
+	new String:country[64];
 	decl String:name[64];
 	decl String:query[500];
 
@@ -446,8 +456,8 @@ AddNewClient(client)
 		return;
 
 	// get the country
-	if (!GeoipCountry(ip, country, sizeof(country)))
-		return;
+	//if (!GeoipCountry(ip, country, sizeof(country)))
+		//return;
 
 	// get the player name
 	if (!GetClientName(client, name, sizeof(name)))
@@ -482,6 +492,7 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 	decl String:buf[256];
 	decl String:steamid[64];
 	decl String:name[64];
+	new Handle:query;
 
 	new length = SQL_GetRowCount(result);
 	new client = data;
