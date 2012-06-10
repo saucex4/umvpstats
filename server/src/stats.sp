@@ -16,6 +16,7 @@ new survivorFFDmg[MAXPLAYERS + 1];
 //multiple tank support variables
 new bool:tankClients[MAXPLAYERS + 1];
 new tankHealth[MAXPLAYERS + 1];
+new survivorDmgToTank[MAXPLAYERS + 1][MAXPLAYERS +1];
 
 //Constants for different SI types
 new const COMMON  = 0;
@@ -50,10 +51,40 @@ public OnPluginStart() {
 	HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("tank_spawn", Event_TankSpawn);
 	HookEvent("round_end ", Event_RoundEnd);
+	HookEvent("survival_round_start", Event_RoundStart);
+	RegConsoleCmd("sm_stats", Command_Kills);
+
+}
+	survivorKills[MAXPLAYERS + 1][8];
+	survivorDmg[MAXPLAYERS + 1][8];
+								     // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
+	survivorHeadShots[MAXPLAYERS + 1];
+	survivorFFDmg[MAXPLAYERS + 1];
+
+public Action:Command_Kills(client, args) {
+	PrintStats();
+}
+
+PrintStats() {
+	
+}
+
+PrintTankStats() {
+
+}
+
+public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
+	ResetStats();
 }
 
 public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) {
-
+	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
+	new String:victimName[40];
+	GetClientName(victim, victimName, strlen(victimName));
+	
+	if (StrContains(victimName, "Tank") != -1) {
+		PrintTankStats()
+	}
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -83,7 +114,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	
 	if (attacker != 0) { //check if the attacker is Console/World if not then move forward
 
-		if(attackerTeam == 1) { //survivor damage including bots
+		if(attackerTeam == TEAM_SURVIVOR) { //survivor damage including bots
 			
 			//record survivor attack
 			if (hitgroup == 1) {
@@ -97,7 +128,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				PrintToChatAll("HEADSHOT by %N on %N",attacker, TrimString(victimName));
 			}
 			
-			if (victimTeam == 1) { //record friendly fire
+			if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
 				survivorFFDmg[attacker] += damage;
 			}
 			else if(damage > 0) { //record damage
@@ -130,6 +161,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 						else {
 							tankHealth[victim] -= damage;
 							survivorDmg[attacker][TANK] += damage;
+							survivorDmgToTank[attacker][victim] -= damage; //Do we count the damage that exceeds the tank's health?
 						}
 					}
                 }
@@ -222,14 +254,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 }
 
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	/*
-	# Name                            |SI      |CI      |Tank
-	1 12345678901234567890123456789012|100 100%|500 100%|100%
-	2 12345678901234567890123456789012|100 100%|500 100%|100%
-	3 12345678901234567890123456789012|100 100%|500 100%|100%
-	4 12345678901234567890123456789012|100 100%|500 100%|100%
-	1111111111111111111111111111111111111111111111111111111
-	*/
+	PrintStats();
 }
 
 //--------------------------------------------------
@@ -245,6 +270,8 @@ ResetStats() {
 		}
 		survivorHeadShots[i] = 0;
 		survivorFFDmg[i] = 0;
+		tankClients[i] = false;
+		tankHealth[i]  = 0;
 	}
 }
 
