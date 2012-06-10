@@ -6,8 +6,6 @@
 #pragma semicolon 1
 
 #include <sourcemod>
-new String:survivor[MAXPLAYERS + 1][21];
-new survivorDmgToTank[MAXPLAYERS + 1];
 new dmgToTankClient[MAXPLAYERS + 1][MAXPLAYERS + 1]; //stores the damage
 
 new survivorKills[MAXPLAYERS + 1][6] //stores the kills for each survivor for each SI type
