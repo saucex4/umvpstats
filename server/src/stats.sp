@@ -94,7 +94,7 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 public Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new String:victimName[40];
-	GetClientName(victim, victimName, strlen(victimName));
+	GetClientModel(victim, victimName, strlen(victimName));
 	
 	if (StrContains(victimName, "Tank") != -1) {
 		PrintTankStats(victim);
@@ -110,7 +110,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new victimRemainingHealth = GetEventInt(event, "health");
 	new String:victimName[40];
-	GetClientName(victim, victimName, strlen(victimName));
+	GetClientModel(victim, victimName, strlen(victimName));
 	new victimTeam = GetClientTeam(victim);
 	
 	//attacker info
@@ -139,33 +139,33 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 					victimName[1] = ' ';
 					victimName[2] = ' ';
 				}
-				PrintToChatAll("HEADSHOT by %N on %N",attacker, TrimString(victimName));
 			}
 			
 			if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
 				survivorFFDmg[attacker] += damage;
 			}
-			else if(damage > 0) { //record damage
+			
+			if((damage > 0) && (victimTeam == TEAM_INFECTED)) { //record damage
 				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-				if (StrContains(victimName, "Hunter") != -1) {
+				if (StrContains(victimName, "Hunter", false) != -1) {
 					survivorDmg[attacker][HUNTER] += damage;
                 }
-				else if (StrContains(victimName, "Jockey") != -1) {
+				else if (StrContains(victimName, "Jockey", false) != -1) {
 					survivorDmg[attacker][JOCKEY] += damage;
                 }
-				else if (StrContains(victimName, "Charger") != -1) {
+				else if (StrContains(victimName, "Charger", false) != -1) {
 					survivorDmg[attacker][CHARGER] += damage;
                 }
-				else if (StrContains(victimName, "Spitter") != -1) {
+				else if (StrContains(victimName, "Spitter", false) != -1) {
 					survivorDmg[attacker][SPITTER] += damage;
                 }
-				else if (StrContains(victimName, "Boomer") != -1) {
+				else if (StrContains(victimName, "Boomer", false) != -1) {
 					survivorDmg[attacker][BOOMER] += damage;
                 }
-				else if (StrContains(victimName, "Smoker") != -1) {
+				else if (StrContains(victimName, "Smoker", false) != -1) {
 					survivorDmg[attacker][SMOKER] += damage;
                 }
-				else if (StrContains(victimName, "Tank") != -1) {
+				else if (StrContains(victimName, "Tank", false) != -1) {
 					//deal with multiple tanks here
 					if (tankClients[victim]) { //if this tank is alive record
 						if (tankHealth[victim] <= 0) {
@@ -185,31 +185,31 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 			//record kill
 			if(victimRemainingHealth == 0) {
 				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-				if (StrContains(victimName, "Hunter") != -1)
+				if (StrContains(victimName, "Hunter", false) != -1)
                 {
                     survivorKills[attacker][HUNTER]++;
                 }
-				else if (StrContains(victimName, "Jockey") != -1)
+				else if (StrContains(victimName, "Jockey", false) != -1)
                 {
                      survivorKills[attacker][JOCKEY]++;
                 }
-				else if (StrContains(victimName, "Charger") != -1)
+				else if (StrContains(victimName, "Charger", false) != -1)
                 {
                     survivorKills[attacker][CHARGER]++;
                 }
-				else if (StrContains(victimName, "Spitter") != -1)
+				else if (StrContains(victimName, "Spitter", false) != -1)
                 {
 					survivorKills[attacker][SPITTER]++;
                 }
-				else if (StrContains(victimName, "Boomer") != -1)
+				else if (StrContains(victimName, "Boomer", false) != -1)
                 {
 					survivorKills[attacker][BOOMER]++;
                 }
-				else if (StrContains(victimName, "Smoker") != -1)
+				else if (StrContains(victimName, "Smoker", false) != -1)
                 {
 					survivorKills[attacker][SMOKER]++;
                 }
-				else if (StrContains(victimName, "Tank") != -1)
+				else if (StrContains(victimName, "Tank", false) != -1)
                 {
 					survivorKills[attacker][TANK]++;
                 }
