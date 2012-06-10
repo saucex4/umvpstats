@@ -5,10 +5,22 @@
 
 #pragma semicolon 1
 
+//==================================================
+// Includes
+//==================================================
 #include <sourcemod>
 
+//==================================================
+// Globals
+//==================================================
 new Handle:db = INVALID_HANDLE;
 new hurtCounter = 0;
+
+// Constants for the different teams----------------
+const TEAM_NONE       = 0;
+const TEAM_SPECTATOR  = 1;
+const TEAM_SURVIVOR   = 2;
+const TEAM_INFECTED   = 3;
 
 public Plugin:myinfo = 
 {
@@ -20,7 +32,7 @@ public Plugin:myinfo =
 
 public OnPluginStart()
 {
-	//World Events
+	// World Events-------------------------------------
 	//HookEvent("round_end", Event_RoundEnd);
 	//HookEvent("round_end_message", Event_RoundEndMessage);
 	//HookEvent("vote_started", Event_VoteStarted);
@@ -35,7 +47,7 @@ public OnPluginStart()
 	//HookEvent("versus_match_finished", Event_VersusMatchFinished);
 	//HookEvent("survival_at_30mins", Event_SurvivalAt30Min);
 	
-	//Survivor Events
+	// Survivor Events----------------------------------
 	//HookEvent("weapon_fire", Event_WeaponFire);
 	//HookEvent("weapon_reload", Event_WeaponReload);
 	//HookEvent("weapon_zoom", Event_WeaponZoom);
@@ -96,7 +108,7 @@ public OnPluginStart()
 	//HookEvent("triggered_car_alarm", Event_TriggeredCarAlarm);
 	//HookEvent("molotov_thrown", Event_MolotovThrown);
 	
-	//Special infected Events
+	// Special infected Events--------------------------
 	//HookEvent("ability_use", Event_AbilityUse);
 	//HookEvent("tank_spawn", Event_TankSpawn);
 	//HookEvent("charger_killed", Event_ChargerKilled);
@@ -129,7 +141,7 @@ public OnPluginStart()
 	//HookEvent("stashwhacker_game_won", Event_StashWhackerGameWon);
 	//HookEvent("foot_lock_opened", Event_FootLockerOpened);
 	
-	//Events for both
+	// Events for both----------------------------------
 	//HookEvent("player_falldamage", Event_PlayerFallDamage);
 	//HookEvent("player_death", Event_PlayerDeath);
 	HookEvent("player_hurt", Event_PlayerHurt);
@@ -139,6 +151,12 @@ public OnPluginStart()
 	
 	//HookEvent("smoker_killed", Event_SmokerKilled); //does not exist
 	//HookEvent("boomer_killed", Event_BoomerKilled); //does not exist
+
+	// Console commands added by the plugin-------------
+	RegConsoleCmd("sm_umvp_add_player", Command_AddPlayerToDB);
+	RegConsoleCmd("sm_umvp_output_player_table", Command_OutputPlayerTable);
+	RegConsoleCmd("sm_umvp_help, Command_Help");
+
 	PrepareConnection();
 }
 
@@ -316,6 +334,45 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 }
 */
 
+//==================================================
+// Commands
+//==================================================
+
+//--------------------------------------------------
+// Command_Help
+//!
+//! \brief This command is used to print help of all the commands
+//--------------------------------------------------
+public Action:Command_Help(client, args)
+{
+	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help");
+}
+
+//--------------------------------------------------
+// Command_AddPlayerToDB
+//!
+//! \brief This command is used to add the current player to the player database
+//--------------------------------------------------
+public Action:Command_AddPlayerToDB(client, args)
+{
+	AddNewClient(client);
+	PrintToConsole(client, "Player Added");
+}
+
+//--------------------------------------------------
+// Command_OutputPlayerTable
+//!
+//! \brief This command is used to output the entire player table to console.
+//--------------------------------------------------
+public Action:Command_OutputPlayerTable(client, args)
+{
+	QueryPlayers(client);
+}
+
+//==================================================
+// Helper Functions and Callbacks
+//==================================================
+
 //--------------------------------------------------
 // GetPlayerString
 //!
@@ -342,19 +399,21 @@ GetPlayerString(String:buf[], length)
 
 			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
 			{
+				// add comma to separate the player names
 				if (numplayers > 0)
 				{
 					Format(tmp, sizeof(tmp), ", ");
 					StrCat(buf, length, tmp);
 				}
 
+				// get the player name and add it
 				GetClientName(i, tmp, sizeof(tmp));
 				StrCat(buf, length, tmp);
 				numplayers++;
 			}
 		}
-	}
-}
+	} // end for
+} // end PlayerString
 
 //--------------------------------------------------
 // AddNewClient
@@ -397,6 +456,71 @@ AddNewClient(client)
 	// create a query string for inserting the data into the table
 	Format(query, sizeof(query), "REPLACE INTO player (steamID, name) VALUES (%s, %s)", steamid, name);
 	SQL_TQuery(db, PostQueryDoNothing, query);
+}
+
+//--------------------------------------------------
+// QueryPlayers
+//!
+//! \brief Queries the database for the players in the players table
+//--------------------------------------------------
+QueryPlayers(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT (steamID, name) FROM player ORDER BY steamID");
+	SQL_TQuery(db, PostQueryPlayers, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryPlayers
+//!
+//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the players in the database.
+//--------------------------------------------------
+public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:steamid[64];
+	decl String:name[64];
+
+	new length = SQL_GetRowCount(result);
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(query, 0, steamid, sizeof(steamid));
+		SQL_FetchString(query, 1, name, sizeof(name));
+		Format(buf, sizeof(buf), "%s %s", steamid, name);
+		WritePackString(dataPackHandle, buf);
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// OutputDataPackStrings
+//!
+//! \brief Outputs the strings contained within a datapack to console.
+//!
+//! \param[in] client          The client index to send to
+//! \param[in] dataPackHandle  The handle to an existing datapack that consists of only strings.
+//! \param[in] length          The number of strings contained within the datapack.
+//--------------------------------------------------
+OutputDataPackStrings(client, Handle:dataPackHandle, length)
+{
+	new i;
+	decl String:buf[250];
+
+	for (i = 0; i < length; i++)
+	{
+		ReadPackString(dataPackHandle, buf, sizeof(buf));
+		PrintToConsole(client, buf);
+	}
 }
 
 //--------------------------------------------------
