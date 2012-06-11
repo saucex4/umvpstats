@@ -12,11 +12,10 @@ new survivorDmg[MAXPLAYERS + 1][8];   //stores the kills for each survivor for e
 								     // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 new survivorHeadShots[MAXPLAYERS + 1];
 new survivorFFDmg[MAXPLAYERS + 1];
-
+new SIHealth[MAXPLAYERS + 1];
 
 //multiple tank support variables
-new bool:tankClients[MAXPLAYERS + 1];
-new tankHealth[MAXPLAYERS + 1];
+new bool:SIClients[MAXPLAYERS + 1];
 new survivorDmgToTank[MAXPLAYERS + 1][MAXPLAYERS +1];
 
 //Constants for different SI types
@@ -50,29 +49,45 @@ public OnPluginStart() {
 	HookEvent("infected_hurt", Event_InfectedHurt);
 	HookEvent("infected_death", Event_InfectedDeath);
 	//HookEvent("player_death", Event_PlayerDeath);
-	HookEvent("tank_spawn", Event_TankSpawn);
+	//HookEvent("tank_spawn", Event_TankSpawn);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
-	RegConsoleCmd("sm_stats", Command_Kills);
+	HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
+	
+	
+	//console commands
+	RegConsoleCmd("sm_stats", Command_Stats);
 	RegConsoleCmd("sm_resetstats", ResetStats);
+	RegConsoleCmd("
 }
 
-public Action:Command_Kills(client, args) {
+public Action:Command_Stats(client, args) {
 	PrintStats();
 }
 
 PrintStats() {
 	for(new i = 1; i < MAXPLAYERS + 1; i++) {
 		if(survivor[i]) {
-			PrintToChatAll("%N Head:%d FF:%d CI:%d(%d) H:%d(%d) J:%d(%d) C:%d(%d) SP:%d(%d) B:%d(%d) SM:%d(%d) T:%d(%d)", i, survivorHeadShots[i],survivorFFDmg[i],
-																																  survivorKills[i][COMMON],survivorDmg[i][COMMON],
-																																  survivorKills[i][HUNTER],survivorDmg[i][HUNTER],
-																																  survivorKills[i][JOCKEY],survivorDmg[i][JOCKEY],
-																																  survivorKills[i][CHARGER],survivorDmg[i][CHARGER],
-																																  survivorKills[i][SPITTER],survivorDmg[i][SPITTER],
-																																  survivorKills[i][BOOMER],survivorDmg[i][BOOMER],
-																																  survivorKills[i][SMOKER],survivorDmg[i][SMOKER],
-																																  survivorKills[i][TANK],survivorDmg[i][TANK]);
+			PrintToChatAll("%N 
+							Head:%d 
+							FF:%d 
+							CI:%d(%d) 
+							H:%d(%d) 
+							J:%d(%d) 
+							C:%d(%d) 
+							SP:%d(%d) 
+							B:%d(%d) 
+							SM:%d(%d) 
+							T:%d(%d)", 
+							i, survivorHeadShots[i],survivorFFDmg[i],
+							survivorKills[i][COMMON],survivorDmg[i][COMMON],
+							survivorKills[i][HUNTER],survivorDmg[i][HUNTER],
+							survivorKills[i][JOCKEY],survivorDmg[i][JOCKEY],
+							survivorKills[i][CHARGER],survivorDmg[i][CHARGER],
+							survivorKills[i][SPITTER],survivorDmg[i][SPITTER],
+							survivorKills[i][BOOMER],survivorDmg[i][BOOMER],
+							survivorKills[i][SMOKER],survivorDmg[i][SMOKER],
+							survivorKills[i][TANK],survivorDmg[i][TANK]);
 		}
 	}
 }
@@ -89,6 +104,16 @@ PrintTankStats(victim) {
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 	ResetStats(0,0);
+}
+
+public Event_PlayerFirstSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
+	new id = GetClientOfUserId(GetEventInt(event,"userid"));
+	if (id != 0) {
+		if (GetClientTeam(id) == TEAM_INFECTED) {
+			SIClients[id] = true;
+			SIHealth[id] = GetEntProp(id, Prop_Send, "m_iMaxHealth") & 0xffff;
+		}
+	}
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -133,40 +158,80 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				survivorFFDmg[attacker] += damage;
 			}
 			if((damage > 0) && (victimTeam == TEAM_INFECTED)) { //record damage
-				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-				if(/* damage done surpasses SI health*/) {
-					// damage = remain
-				}
 				if (StrContains(victimName, "Hunter", false) != -1) {
-					survivorDmg[attacker][HUNTER] += damage;
+					if (victimRemainingHealth == 0) { //kill shot
+						survivorDmg[attacker][HUNTER] += SIHealth[victim];
+						survivorKills[attacker][HUNTER]++;
+					}
+					else {
+						survivorDmg[attacker][HUNTER] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Jockey", false) != -1) {
-					survivorDmg[attacker][JOCKEY] += damage;
+					if (victimRemainingHealth == 0) {
+						survivorDmg[attacker][JOCKEY] += SIHealth[victim];
+						survivorKills[attacker][JOCKEY]++;
+					}
+					else {
+						survivorDmg[attacker][JOCKEY] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Charger", false) != -1) {
-					survivorDmg[attacker][CHARGER] += damage;
+					if (victimRemainingHealth == 0) { //kill shot
+						survivorDmg[attacker][CHARGER] += SIHealth[victim];
+						survivorKills[attacker][CHARGER]++;
+					}
+					else {
+						survivorDmg[attacker][CHARGER] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Spitter", false) != -1) {
-					survivorDmg[attacker][SPITTER] += damage;
+					if (victimRemainingHealth == 0) { //kill shot
+						survivorDmg[attacker][SPITTER] += SIHealth[victim];
+						survivorKills[attacker][SPITTER]++;
+					}
+					else {
+						survivorDmg[attacker][SPITTER] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Boomer", false) != -1) {
-					survivorDmg[attacker][BOOMER] += damage;
+					if (victimRemainingHealth == 0) { //kill shot
+						survivorDmg[attacker][BOOMER] += SIHealth[victim];
+						survivorKills[attacker][BOOMER]++;
+					}
+					else {
+						survivorDmg[attacker][BOOMER] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Smoker", false) != -1) {
-					survivorDmg[attacker][SMOKER] += damage;
+					if (victimRemainingHealth == 0) { //kill shot
+						survivorDmg[attacker][SMOKER] += SIHealth[victim];
+						survivorKills[attacker][SMOKER]++;
+					}
+					else {
+						survivorDmg[attacker][SMOKER] += damage;
+						SIHealth[victim] -= damage;
+					}
                 }
 				else if (StrContains(victimName, "Hulk", false) != -1) {
 					//deal with multiple tanks here
-					if (tankClients[victim]) { //if this tank is alive record
-						if ((tankHealth[victim] <= 0) || (victimRemainingHealth > tankHealth[victim])) {
-							survivorDmgToTank[attacker][victim] += tankHealth[victim];
-							survivorDmg[attacker][TANK] += tankHealth[victim];
-							tankClients[victim] = false;
-							tankHealth[victim] = 0;
+					if (SIClients[victim]) { //if this tank is alive record
+						if ((SIHealth[victim] <= 0) || (victimRemainingHealth > SIHealth[victim])) {
+							
+							survivorDmgToTank[attacker][victim] += SIHealth[victim];
+							survivorDmg[attacker][TANK] += SIHealth[victim];
+							SIClients[victim] = false;
+							SIHealth[victim] = 0;
 							PrintTankStats(victim);
+							survivorKills[attacker][TANK]++;
 						}
 						else {
-							tankHealth[victim] -= damage;
+							SIHealth[victim] -= damage;
 							survivorDmg[attacker][TANK] += damage;
 							survivorDmgToTank[attacker][victim] += damage; //Do we count the damage that exceeds the tank's health?
 						}
@@ -175,49 +240,14 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				
 			}
 			
-			//record kill
+			//reset SI Tracking variables on kill
 			if(victimRemainingHealth == 0) {
-				// 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-				if (StrContains(victimName, "Hunter", false) != -1)
-                {
-                    survivorKills[attacker][HUNTER]++;
-                }
-				else if (StrContains(victimName, "Jockey", false) != -1)
-                {
-                     survivorKills[attacker][JOCKEY]++;
-                }
-				else if (StrContains(victimName, "Charger", false) != -1)
-                {
-                    survivorKills[attacker][CHARGER]++;
-                }
-				else if (StrContains(victimName, "Spitter", false) != -1)
-                {
-					survivorKills[attacker][SPITTER]++;
-                }
-				else if (StrContains(victimName, "Boome", false) != -1)
-                {
-					survivorKills[attacker][BOOMER]++;
-                }
-				else if (StrContains(victimName, "Smoker", false) != -1)
-                {
-					survivorKills[attacker][SMOKER]++;
-                }
-				else if (StrContains(victimName, "Hulk", false) != -1)
-                {
-					survivorKills[attacker][TANK]++;
-                }
-				
+				SIClients[victim] = false;
+				SIHealth[victim] = 0;
 			}
 		}
-		//else if(strcmp(attackerSteamID,"BOT",false) && (attackerTeam == 2)) { don't need to record}
 	}
-	//else {} Do nothing when it's console/world
-}
-
-public Event_TankSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
-	new tankId = GetClientOfUserId(GetEventInt(event,"userid"));
-	tankClients[tankId] = true;
-	tankHealth[tankId] = GetEntProp(tankId, Prop_Send, "m_iMaxHealth") & 0xffff;
+	
 }
 
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -265,7 +295,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 }
 
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	PrintStats();
+	//PrintMVPStats()
 }
 
 //--------------------------------------------------
@@ -282,8 +312,8 @@ public Action:ResetStats(client, args) {
 		}
 		survivorHeadShots[i] = 0;
 		survivorFFDmg[i] = 0;
-		tankClients[i] = false;
-		tankHealth[i]  = 0;
+		SIClients[i] = false;
+		SIHealth[i]  = 0;
 	}
 }
 
