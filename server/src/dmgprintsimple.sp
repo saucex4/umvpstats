@@ -14,6 +14,7 @@
 // Globals
 //==================================================
 new Handle:db = INVALID_HANDLE;
+new Handle:test_db_sqlite = INVALID_HANDLE;
 new hurtCounter = 0;
 
 // Constants for the different teams----------------
@@ -195,6 +196,7 @@ public OnPluginStart()
 
 public OnPluginEnd() {
 	CloseHandle2(db);
+	CloseHandle2(test_db_sqlite);
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -368,10 +370,10 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 */
 
 //==================================================
-// SQL Commands
+// TestDB SQL Commands
 //==================================================
 
-new const NUM_TEST_COMMANDS = 16;
+new const NUM_TEST_COMMANDS = 6;
 new String:sql_test_commands[][1024] =
 {
 	"DROP TABLE IF EXISTS player;",
@@ -385,11 +387,11 @@ new String:sql_test_commands[][1024] =
 	"DROP TABLE IF EXISTS gameClient;",
 	"CREATE TABLE IF NOT EXISTS gameClient(entryID INTEGER, modelID INTEGER, steamID VARCHAR(20), birthTime INTEGER, deathTime INTEGER, PRIMARY KEY (entryID));",
 	"DROP TABLE IF EXISTS team;",
-	"CREATE TABLE IF NOT EXISTS team(teamID INTEGER, steamID VARCHAR(20), recordID INTEGER, teamType INTEGER, birthTime INTEGER, deathTime INTEGER, PRIMARY KEY teamID);",
+	"CREATE TABLE IF NOT EXISTS team(teamID INTEGER, steamID VARCHAR(20), recordID INTEGER, teamType INTEGER, birthTime INTEGER, deathTime INTEGER, PRIMARY KEY (teamID));",
 	"DROP TABLE IF EXISTS modelTypes;",
-	"CREATE TABLE IF NOT EXISTS modelTypes(modelID INTEGER, steamID VARCHAR(45), modelType INTEGER, PRIMARY KEY modelID);",
+	"CREATE TABLE IF NOT EXISTS modelTypes(modelID INTEGER, steamID VARCHAR(45), modelType INTEGER, PRIMARY KEY (modelID));",
 	"DROP TABLE IF EXISTS damage;",
-	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER, weaponID INTEGER, damageType INTEGER, kill INTEGER, attacker INTEGER, aRemainingHealth INTEGER, aMaxHealth INTEGER, aPositionX FLOAT, aPositionY FLOAT, aPositionZ FLOAT, aLatency INTEGER, aLoss INTEGER, aChoke INTEGER, aPackets INTEGER, victimSteamID VARCHAR(20), vRemainingHealth INTEGER, vMaxHealth VARCHAR(45), vPositionX FLOAT, vPositionY FLOAT, vPositionZ FLOAT, vLatency INTEGER, vLoss INTEGER, vChoke INTEGER, vPackets INTEGER, PRIMARY KEY entryID);"
+	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER, weaponID INTEGER, damageType INTEGER, kill INTEGER, attacker INTEGER, aRemainingHealth INTEGER, aMaxHealth INTEGER, aPositionX FLOAT, aPositionY FLOAT, aPositionZ FLOAT, aLatency INTEGER, aLoss INTEGER, aChoke INTEGER, aPackets INTEGER, victimSteamID VARCHAR(20), vRemainingHealth INTEGER, vMaxHealth VARCHAR(45), vPositionX FLOAT, vPositionY FLOAT, vPositionZ FLOAT, vLatency INTEGER, vLoss INTEGER, vChoke INTEGER, vPackets INTEGER, PRIMARY KEY (entryID));"
 };
 
 //==================================================
@@ -404,6 +406,7 @@ new String:sql_test_commands[][1024] =
 public Action:Command_Help(client, args)
 {
 	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help\nsm_umvp_connect_test_db\nsm_add_official_maps\nsm_umvp_output_maps_table");
+	return Plugin_Handled;
 }
 
 //--------------------------------------------------
@@ -425,21 +428,22 @@ public Action:Command_ConnectTestDB(client, args)
 	//KvSetString(keyval, "user", "root");
 	//KvSetString(keyval, "pass", "");
 
-	CloseHandle2(db);
-	db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+	CloseHandle2(test_db_sqlite);
+	test_db_sqlite = SQL_ConnectCustom(keyval, error, sizeof(error), true);
 	CloseHandle(keyval);
 
 
 	for (new i = 0; i < NUM_TEST_COMMANDS; i++)
 	{
 		new Handle:query;
-		if (!(SQL_FastQuery(db, sql_test_commands[i])))
+		if (!(SQL_FastQuery(test_db_sqlite, sql_test_commands[i])))
 		{
-			SQL_GetError(db, error, sizeof(error));
+			SQL_GetError(test_db_sqlite, error, sizeof(error));
 			PrintToConsole(client, error);
 		}
 		CloseHandle2(query);
 	}
+	return Plugin_Handled;
 }
 
 //--------------------------------------------------
@@ -451,6 +455,8 @@ public Action:Command_AddPlayerToDB(client, args)
 {
 	AddNewClient(client);
 	PrintToConsole(client, "Player Added");
+
+	return Plugin_Handled;
 }
 
 //--------------------------------------------------
@@ -461,6 +467,7 @@ public Action:Command_AddPlayerToDB(client, args)
 public Action:Command_OutputMapsTable(client, args)
 {
 	QueryMaps(client);
+	return Plugin_Handled;
 }
 
 
@@ -472,6 +479,7 @@ public Action:Command_OutputMapsTable(client, args)
 public Action:Command_OutputPlayerTable(client, args)
 {
 	QueryPlayers(client);
+	return Plugin_Handled;
 }
 
 //--------------------------------------------------
@@ -482,6 +490,7 @@ public Action:Command_OutputPlayerTable(client, args)
 public Action:Command_AddOfficialMaps(client, args)
 {
 	AddOfficialMaps();
+	return Plugin_Handled;
 }
 
 //==================================================
@@ -501,8 +510,8 @@ AddOfficialMaps()
 	for (new i = 0; i < NUM_OFFICIAL_MAPS_2; i++)
 	{
 		// create the SQL insert command to insert the official maps
-		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (%s, %s, 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
-		SQL_TQuery(db, PostQueryDoNothing, query);
+		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (\'%s\', \'%s\', 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
 	}
 }
 
@@ -587,8 +596,8 @@ AddNewClient(client)
 		return;
 
 	// create a query string for inserting the data into the table
-	Format(query, sizeof(query), "REPLACE INTO player (steamID, name) VALUES (%s, %s)", steamid, name);
-	SQL_TQuery(db, PostQueryDoNothing, query);
+	Format(query, sizeof(query), "REPLACE INTO player (steamID, name) VALUES (\'%s\', \'%s\')", steamid, name);
+	SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
 }
 
 //--------------------------------------------------
@@ -598,11 +607,12 @@ AddNewClient(client)
 //--------------------------------------------------
 QueryPlayers(client)
 {
+	PrintToConsole(client, "Outputting Players Table...");
 	decl String:query[500];
 
 	// create a query string for querying the data
-	Format(query, sizeof(query), "SELECT (steamID, name) FROM player ORDER BY steamID");
-	SQL_TQuery(db, PostQueryPlayers, query, client);
+	Format(query, sizeof(query), "SELECT steamID, name FROM player ORDER BY steamID");
+	SQL_TQuery(test_db_sqlite, PostQueryPlayers, query, client);
 }
 
 //--------------------------------------------------
@@ -615,9 +625,15 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 	decl String:buf[256];
 	decl String:steamid[64];
 	decl String:name[64];
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToConsole(client, error);
+		return;
+	}
 
 	new length = SQL_GetRowCount(result);
-	new client = data;
 
 	new Handle:dataPackHandle = CreateDataPack();
 
@@ -626,6 +642,7 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 		SQL_FetchString(result, 0, steamid, sizeof(steamid));
 		SQL_FetchString(result, 1, name, sizeof(name));
 		Format(buf, sizeof(buf), "%s %s", steamid, name);
+		PrintToConsole(client, buf);
 		WritePackString(dataPackHandle, buf);
 	}
 
@@ -645,8 +662,8 @@ QueryMaps(client)
 	decl String:query[500];
 
 	// create a query string for querying the data
-	Format(query, sizeof(query), "SELECT (mapName, campaignName) FROM maps ORDER BY mapName");
-	SQL_TQuery(db, PostQueryMaps, query, client);
+	Format(query, sizeof(query), "SELECT mapName, campaignName FROM maps ORDER BY mapName");
+	SQL_TQuery(test_db_sqlite, PostQueryMaps, query, client);
 }
 
 //--------------------------------------------------
