@@ -50,7 +50,7 @@ new collectStats = false;
 
 public Plugin:myinfo = {
 		   name = "stats",
-		 author = "sauce",
+		 author = "sauce & guyguy",
 	description = "Stats for survival kills",
 		version = "0.0.1"
 };
@@ -89,6 +89,9 @@ public Action:Command_Stats(client, args) {
 		else if (StrEqual(arg1, "detail", false)){
 			PrintStats(client, client, true); // print personal stats with detail
 		}
+		else if (StrEqual(arg1, "round", false)) {
+			PrintStats(client, 20000, false);
+		}
 		else { // prints a specific player's stats summarized
 			// check to see if name matches to a client
 			clientToPrint = FindSurvivorClient(arg1);
@@ -126,136 +129,178 @@ public Action:Command_Stats(client, args) {
 	}
 }
 
-bool:ExtendStr(String:str, String:buffer, length, bool:pre=true, const String:insert[]=" ") {
-	if (length > 0) {
-		new howmany = length - strlen(str);
-		new String:prefix[howmany];
-		
-		for (new i = 0; i < howmany; i++) {
-			prefix[i] = insert;
-		}
-		if (pre) {
-			StrCat(buffer, length, prefix);
-			StrCat(buffer, length, str);
-		}
-		else {
-			StrCat(buffer, length, str);
-			StrCat(buffer, length, prefix);
-		}
-		return true;
-	}
-	return false;
-} 
 
-PrintStats(printToClient, option, bool:detail ) {
+PrintStats(printToClient, option, bool:detail) {
 	// client2 values
 	// 100 = print mvp
 	//   0 = print all summarized stats
-	if (detail) {
-		switch (option) {
-			case 0: {
-			/*
-			Chat: !stats detail
-			 1111111111111111111111111111111111111111111111111
-			1name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
-			2SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
-			3name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
-			4SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
-			5name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
-			6SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
-			7name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
-			8SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
-			9=================================================
-			0SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
-			*/
+	new totalDamage[8];
+	new totalKills[8];
+	
+	TotalDamage(totalDamage, totalKills);
+	
+	switch (option) {
+		case 0: {
+		/*
+		Chat: !stats all [detail]
+		 1111111111111111111111111111111111111111111111111
+		1name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
+		2SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX) <-- skip if detail flag is false
+		3name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
+		4SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
+		5name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
+		6SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
+		7name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
+		8SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
+		9=================================================
+		0SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
+		*/
+			for (new i = 1; i < MAXPLAYERS + 1; i++) {
+				if (survivor[i]) {
+					// process name
+					new String:name[20];
+					GetClientName(i,name, sizeof(name));
+					// end process name
+					
+					// process SI %
+					new SIKills   = survivorKills[i][HUNTER] + survivorKills[i][JOCKEY] + survivorKills[i][CHARGER] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER];
+					new totalSIKills = totalKills[HUNTER] + totalKills[JOCKEY] + totalKills[CHARGER] + totalKills[SMOKER] + totalKills[SPITTER] + totalKills[BOOMER];
+					
+					new Float:percentSI;
+
+					if (totalSIKills == 0) {
+						percentSI = 0.0; 
+					}
+					else {
+						percentSI = (float(SIKills)/(float(totalSIKills)))*100.00;
+					}
+					// end process SI %
+					
+					// process CI %
+					new CIKills   = survivorKills[i][COMMON];
+					new Float:percentCI;
+					if(totalKills[COMMON] == 0) {
+						percentCI = 0.0;
+					}
+					else {
+						percentCI =(float(CIKills)/float(totalKills[COMMON]))*100.00;
+					}
+					// end process CI %
+					
+					// process Tank %
+					new TankKills   = survivorKills[i][TANK];
+					new Float:percentTanks;
+					if (totalKills[TANK] == 0) {
+						percentTanks = 0.0;
+					}
+					else {
+						percentTanks = ((float(TankKills)/float(totalKills[TANK]))*100.00);
+					}
+					
+					// end process Tank %
+					
+					if (printToClient == 0) { // print to everyone
+						PrintToChatAll("\x04%19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+					}
+					else if(printToClient > 0) { // print to specific client
+						PrintToChat(printToClient,"\x04%19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+					}
+					
+					// process total SI kills
+					
+					// process total SI damage
+					
+					// process total CI kills
+					
+					// process total CI damage
+					
+					// process total tank kills
+					
+					// process total tank damage
+					
+					
+					/*
+					if(detail) {
+						if (printToClient == 0) {
+							PrintToChatAll("\x05SI:\x03%s\x01(%s) \x05CI:\x03%s\x01(%s) \x05T:\x03%s\x01(%s)",properClientTSI, properClientTSIDmg,
+																											  properClientTCI, properClientTSIDmg,
+																											  properClientTTank, properClientTTankDmg);
+						}
+						else if (printtoClient > 0) {
+							PrintToChat(printToClient,"\x05SI:\x03%s\x01(%s) \x05CI:\x03%s\x01(%s) \x05T:\x03%s\x01(%s)",properClientTSI, properClientTSIDmg,
+																														 properClientTCI, properClientTSIDmg,
+																														 properClientTTank, properClientTTankDmg);
+						}
+					}*/
+				}
 			}
-			case 10000: {
 			/*
-			Chat: !stats mvp detail
-			 1111111111111111111111111111111111111111111111111
-			1MVP:name567890123 (1)T:XXX% (2)SI:XXX% (3)CI:XXX% 
-			2FF: XXX HS: XXXXX Total Dmg: XXXXXX
-			3name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			4FF: XXX HS: XXXXX Total Dmg: XXXXXX
-			5name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			6FF: XXX HS: XXXXX Total Dmg: XXXXXX
-			7name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			8FF: XXX HS: XXXXX Total Dmg: XXXXXX
-			*/
+			if (printToClient == 0) { 
+				PrintToChatAll("=================================================");
+				PrintToChatAll("\x04[SI]: \x01%s \x05Kills \x04[CI]: \x01%s \x05Kills \x04[T]: \x01%s \x05Kills", properTSI, properCSI, properT);
 			}
-			default: {
-			/*
-			Chat: !stats <name> detail
-			 1111111111111111111111111111111111111111111111111
-			1name456789012345678901234567 FF: XXXXX HS: XXXXXX
-			2 [J] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			3 [C] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			4 [H] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			5 [B] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			6[SM] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			7[SP] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			8 [T] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX% 
-			9[CI] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-			*/
-			}
+			else if(printToClient > 0) {
+				PrintToChat(printToClient, "=================================================");
+				PrintToChat(printToClient,"\x04[SI]: \x01%s \x05Kills \x04[CI]: \x01%s \x05Kills \x04[T]: \x01%s \x05Kills", properTSI, properCSI, properT);
+			}*/
 		}
-	}
-	else if(!detail) {
-		switch (option) {
-			case 0: {
-			/*
-			Chat: !stats
-			 1111111111111111111111111111111111111111111111111
-			1name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-			2name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-			3name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-			4name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-			5=================================================
-			6[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
-			7
-			8
-			
-			*/
-			}
-			case 100: {
-			/*
-			Chat: !stats mvp
-			 1111111111111111111111111111111111111111111111111
-			1MVP:name567890123 (1)T:XXX% (2)SI:XXX% (3)CI:XXX% 
-			2name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			3name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			4name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
-			5=================================================
-			6[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
-			7
-			8
-			*/
-			}
-			default: {
-			/*
-			Chat: !stats <name>
-			 1111111111111111111111111111111111111111111111111
-			1name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-			2=================================================
-			3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
-			4
-			5
-			6
-			7
-			8
-			*/
-			}
+		case 10000: {
+		/*
+		Chat: !stats mvp detail
+		 1111111111111111111111111111111111111111111111111
+		1MVP:name567890123 (1)T:XXX% (2)SI:XXX% (3)CI:XXX% 
+		2FF: XXX HS: XXXXX Total Dmg: XXXXXX			  <-- skip if detail flag is false
+		3name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
+		4FF: XXX HS: XXXXX Total Dmg: XXXXXX
+		5name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
+		6FF: XXX HS: XXXXX Total Dmg: XXXXXX
+		7name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
+		8FF: XXX HS: XXXXX Total Dmg: XXXXXX
+		*/
 		}
-	}
-	
-	if (printToClient == 0) { // print to everyone
-	
-	}
-	else if(printToClient > 0) { // print to specific client
-	
+		case 20000: {
+		/*
+		Chat: !stats round
+		 1111111111111111111111111111111111111111111111111
+		1[Jockey]: XXXX [Charger]: XXXX
+		2[Smoker]: XXXX [Spitter]: XXXX
+		3[Boomer]: XXXX  [Hunter]: XXXX
+		4  [Tank]: XXXX
+		5
+		6
+		7
+		8
+		*/
+		}
+		default: {
+		/*
+		Chat: !stats <name> detail
+		 1111111111111111111111111111111111111111111111111
+		1name456789012345678901234567 FF: XXXXX HS: XXXXXX
+		2 [J] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		3 [C] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		4 [H] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		5 [B] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		6[SM] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		7[SP] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		8 [T] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX% 
+		9[CI] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+		*/
+		/*
+		Chat: !stats <name>
+		 1111111111111111111111111111111111111111111111111
+		1name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
+		2=================================================
+		3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
+		4
+		5
+		6
+		7
+		8
+		*/
+		}
 	}
 }
-
 
 
 //--------------------------------------------------
@@ -454,7 +499,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new hitgroup;
 
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker <= MaxClients) && (collectStats))
+	if (attacker && (attacker < MAXPLAYERS + 1) && (collectStats))
 	{
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) {
@@ -479,7 +524,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	
 
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker <= MaxClients) && collectStats)
+	if (attacker && (attacker < MAXPLAYERS + 1) && collectStats)
 	{
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) 
@@ -488,8 +533,6 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 		}
 	}
 }
-
-
 
 
 /********** HELPER FUNCTIONS ***********/
@@ -502,28 +545,31 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 //! \param[out] total_array An existing array of 8 integers (7 SI and 1 Common). This will store the total damage outputs.
 //! \param[out] total_array An existing array of 8 integers (7 SI and 1 Common). This will store the total kill outputs.
 //--------------------------------------------------
+
 TotalDamage(total_damage_array[], total_kills_array[]) {
 	// first zero out the array
 	for (new i = 0; i < 8; i++) {
-		total_array[i] = 0;
+		total_kills_array[i] = 0;
+		total_damage_array[i] = 0;
 	}
 
 	// now add all damages from the different clients that are connected and on the survivor team
-	for (new i = 1; i <= MaxClients; i++) {
-		if (IsClientConnected(i) && IsClientInGame(i)) {
-			new team = GetClientTeam(i);
+	for (new i = 1; i < MAXPLAYERS + 1; i++) {
+		// if (IsClientConnected(i) && IsClientInGame(i)) {
+			// new team = GetClientTeam(i);
 
-			if (team == TEAM_SURVIVOR && !IsFakeClient(i)) {
+			// if (team == TEAM_SURVIVOR && !IsFakeClient(i)) {
 				// go through the 8 different types of infected (7 SI, 1 common)
-				for (new j = 0; j < 8; j++) {
-					total_kills_array[j] += survivorKills[i][j];
-					total_damage_array[j] += survivorDmg[i][j];
-				} // end inner for loop
-			}
+		if (survivor[i]) {
+			for (new j = 0; j < 8; j++) {
+				total_kills_array[j] += survivorKills[i][j];
+				total_damage_array[j] += survivorDmg[i][j];
+			} // end inner for loop
 		}
+			// }
+		// }
 	} // end outer for loop
 }
-
 
 PrintTankStats(victim) {
 	for(new i = 0; i < MAXPLAYERS + 1; i++) {
@@ -554,3 +600,4 @@ FindSurvivorClient(String:name[33]) {
 	}
 	return -1; //doesn't exist
 }
+
