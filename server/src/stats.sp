@@ -1,6 +1,16 @@
-/**********************************
-* This is just a test playground for various events in l4d2.
-***********************************/
+/*****************************************************************************
+* Simple Survival Stats
+* By sauce & guyguy
+* 
+* This plugin basically displays damage
+* stats, kill stats, FF stats, and headshot stats
+*
+* Usage:        !stats [detail] <--- personal summarized stats
+*           !stats all [detail] <--- summarized stats
+*           !stats mvp [detail] <--- round stats with MVP info
+*		 !stats <name> [detail] <--- stats for specific player
+*		               [detail] <--- optional detail flag for more information
+*****************************************************************************/
 
 
 #pragma semicolon 1
