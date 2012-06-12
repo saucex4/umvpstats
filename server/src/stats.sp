@@ -32,7 +32,15 @@ new CIHealth[MAXENTITIES + 1];        // Tracks health of every common infected.
 new bool:SIClients[MAXPLAYERS + 1];   // current clients that are SI
 new survivorDmgToTank[MAXPLAYERS + 1][MAXPLAYERS +1]; // tracks individual dmg to tank by survivor for multiple tank support
 
-// Constants for different SI types
+// Constants for different CI model ids-------------
+// NOTE: Works for survival mode only. In the future, check the cvar
+// BIO_ZOMBIE, CONSTRUCTION_ZOMBIE, CLOWN_ZOMBIE, SURVIVOR_ZOMBIE, RIOT_ZOMBIE
+new const NUM_SPECIAL_ZOMBIES = 5;
+new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232};
+new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50};
+new const DEFAULT_HP = 50;
+
+// Constants for different SI types-----------------
 new const COMMON  = 0;
 new const HUNTER  = 1;
 new const JOCKEY  = 2;
@@ -421,6 +429,7 @@ public Action:ResetStats(client, args) {
 		SIClients[i] = false;
 		SIHealth[i]  = 0;
 	}
+	ResetCIHealth();
 }
 
 
@@ -590,29 +599,77 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	
 }
 
+//--------------------------------------------------
+// Event_InfectedHurt
+//!
+//! \brief     This calculates the damage done to common infected.
+//! \details   Part of the complications in the calculation is due to the fact that real damage is not shown. Example: A weapon might do 90 damage but the zombie has only 10 health remaining. The actual damage should be 10, but the recorded amount is 90. To compensate for this, the common health are tracked in an array and the real damage is updated accordingly.
+//--------------------------------------------------
+
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
+	//--------------------------------------------------
+	// Local Variables:
+	//
+	// attacker    - client index of the attacker
+	// victim      - entity index of the victim common infected
+	// damage      - the full damage amount the weapon did, may exceed the common's health
+	// hitgroup    - 1 for headshot, etc
+	// realdamage  - the calculated damage so that the damage does not exceed teh common's health
+	// model_id    - The model id, which identifies if the zombies is a special type of zombie such as construction worker
+	// max_hp      - The maximum hp of the zombie. This depends on the type of zombie. Special zombies have different healths other than the default health of 50 for survival mode.
+	//--------------------------------------------------
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new victim = entityid;
-	new String:victimName[40];
+	new victim = GetEventInt(event, "entityid");
 
 	// retrieve the damage and hitgroup
 	new damage = GetEventInt(event, "amount");
 	new hitgroup = GetEventInt(event, "hitgroup");
 	new realdamage; // TODO: (?) The real damage done to the zombie
+	new model_id;
 
-	GetClientModel(victim, victimName, sizeof(victimName));
-	// TODO: this is for testing purposes, remove later
-	PrintToChatAll("infected hurt model: %s", victimName);
+	model_id = GetEntProp(victim, PROP_SEND, "m_nModelIndex");
+
+	new maxhp = DEFAULT_HP;
+
+	// check to see if the victim is a special zombie
+	for (new i = 0; i < NUM_SPECIAL_ZOMBIES; i++) {
+
+		// if it is a special zombie, change the hp accordingly
+		if (model_id == SPECIAL_ZOMBIE_ID[i]) {
+			maxhp = SPECIAL_ZOMBIE_HP[i];
+		}
+	}
+
+	// if the damage is 1 (due to fire), modify the damage to a killing blow.
+	// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283)
+	if ((damage == 1 || GetEventInt(event, "hitgroup") == 1) && model_id != 283) {
+		damage = maxhp;
+	}
+
+	// Now check the zombie's remaining health. If the health value in the zombie health array is zero, we assume the zombie was at full health before the damage was dealt.
+	if (CIHealth[victim] <= 0) {
+		CIHealth[victim] = maxhp;
+	}
+
+	// if the shot is beyond the CIHealth, modify the damage so that it is simply equal to the hp (killing blow)
+	if (damage > CIHealth[victim]) {
+		realdamage = CIHealth[victim];
+	}
+	else {
+		realdamage = damage; // otherwise the damage is unchanged
+	}
+
+	// decrease the health of the zombie by the realdamage.
+	CIHealth[victim] -= realdamage;
 
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker < MaxClients) && (collectStats))
-	{
+	if (attacker && (attacker < MaxClients) && (collectStats)) {
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) {
 			survivor[attacker] = true;
 
-			survivorDmg[attacker][COMMON] += damage;
+			survivorDmg[attacker][COMMON] += realdamage;
 
 			// check for a headshot
 			if (hitgroup == 1) {
@@ -642,14 +699,14 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 /********** HELPER FUNCTIONS ***********/
 
 //--------------------------------------------------
-// ResetSIHealth
+// ResetCIHealth
 //!
-//! \brief Resets the SI health array to zero
+//! \brief Resets the CI health array to zero
 //--------------------------------------------------
 
-ResetSIHealth() {
+ResetCIHealth() {
 	for (new i = 0; i < MAXENTITIES; i++) {
-		SIHealth[i] = 0;
+		CIHealth[i] = 0;
 	}
 }
 
