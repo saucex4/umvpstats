@@ -10,6 +10,7 @@
 *           !stats mvp [detail] <--- round stats with MVP info
 *		 !stats <name> [detail] <--- stats for specific player
 *		               [detail] <--- optional detail flag for more information
+*          !resetstats [detail]
 *****************************************************************************/
 
 
@@ -82,6 +83,12 @@ public OnPluginStart() {
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
 	RegConsoleCmd("sm_resetstats", ResetStats);
 }
+
+public OnClientDisconnect(client) {
+	ResetStatsByClient(client);
+}
+
+
 
 /********** COMMAND FUNCTIONS ***********/
 
@@ -745,7 +752,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 }
 
 PrintTankStats(victim) {
-	new Float:percentDmg;
+	new records[MaxClients][2];
 	
 	for(new i = 0; i < MaxClients; i++) {
 		if (survivorDmgToTank[i][victim] != 0) {
@@ -776,3 +783,19 @@ FindSurvivorClient(String:name[33]) {
 	return -1; //doesn't exist
 }
 
+bool:ResetStatsByClient(client) {
+	if (client <= MaxClients) {
+		survivor[client]          = false;
+		survivorHeadShots[client] = 0;
+		survivorFFDmg[client]     = 0;
+		for (new i = 0; i < MaxClients; i++) {
+			if (i < 9) {
+				survivorKills[client][i] = 0;
+				survivorDmg[client][i] = 0;
+			}
+			survivorDmgToTank[client][i] = 0;
+		}
+		return true;
+	}
+	return false;
+}
