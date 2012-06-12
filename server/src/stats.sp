@@ -99,7 +99,7 @@ public Action:Command_Stats(client, args) {
 				PrintStats(client, clientToPrint, false);
 			}
 			else {
-				PrintToChat(client,"%s not found", arg1);
+				PrintToChat(client,"Player: \x04%s not found.", arg1);
 			}
 		}
 	}
@@ -285,9 +285,9 @@ PrintStats(printToClient, option, bool:detail) {
 				PrintToChatAll("\x04[SPITTER]: \x01%4d",totalKills[SPITTER]);
 			}
 			else {
-				PrintToChat(printToClient,"\x04[JOCKEY]: \x01%4d \x03[TOTAL SI]: \x01%d",totalKills[JOCKEY], totalSIKills);
-				PrintToChat(printToClient,"\x04[SMOKER]: \x01%4d \x03[COMMON]: \x01%d",totalKills[SMOKER], totalKills[COMMON]);
-				PrintToChat(printToClient,"\x04[BOOMER]: \x01%4d \x03[TANKS]: \x01%d",totalKills[BOOMER],totalKills[TANK]);
+				PrintToChat(printToClient,"\x04[JOCKEY]: \x01%4d \x04[TOTAL SI]: \x01%d",totalKills[JOCKEY], totalSIKills);
+				PrintToChat(printToClient,"\x04[SMOKER]: \x01%4d \x04[COMMON]: \x01%d",totalKills[SMOKER], totalKills[COMMON]);
+				PrintToChat(printToClient,"\x04[BOOMER]: \x01%4d \x04[TANKS]: \x01%d",totalKills[BOOMER],totalKills[TANK]);
 				PrintToChat(printToClient,"\x04[HUNTER]: \x01%4d",totalKills[HUNTER]);
 				PrintToChat(printToClient,"\x04[CHARGER]: \x01%4d",totalKills[CHARGER]);
 				PrintToChat(printToClient,"\x04[SPITTER]: \x01%4d",totalKills[SPITTER]);
@@ -295,31 +295,105 @@ PrintStats(printToClient, option, bool:detail) {
 		
 		}
 		default: {
-		/*
-		Chat: !stats <name> detail
-		 1111111111111111111111111111111111111111111111111
-		1name456789012345678901234567 FF: XXXXX HS: XXXXXX
-		2 [J] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		3 [C] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		4 [H] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		5 [B] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		6[SM] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		7[SP] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		8 [T] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX% 
-		9[CI] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
-		*/
-		/*
-		Chat: !stats <name>
-		 1111111111111111111111111111111111111111111111111
-		1name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
-		2=================================================
-		3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
-		4
-		5
-		6
-		7
-		8
-		*/
+			// process name
+			new String:name[20];
+			GetClientName(option,name, sizeof(name));
+			// end process name
+			
+			// process SI %
+			new SIKills   = survivorKills[option][HUNTER] + survivorKills[option][JOCKEY] + survivorKills[option][CHARGER] + survivorKills[option][SMOKER] + survivorKills[option][SPITTER] + survivorKills[option][BOOMER];
+			new Float:percentSI;
+
+			if (totalSIKills == 0) {
+				percentSI = 0.0; 
+			}
+			else {
+				percentSI = (float(SIKills)/(float(totalSIKills)))*100.00;
+			}
+			// end process SI %
+			
+			// process CI %
+			new CIKills   = survivorKills[option][COMMON];
+			new Float:percentCI;
+			if(totalKills[COMMON] == 0) {
+				percentCI = 0.0;
+			}
+			else {
+				percentCI =(float(CIKills)/float(totalKills[COMMON]))*100.00;
+			}
+			// end process CI %
+			
+			// process Tank %
+			new TankDmg   = survivorDmg[option][TANK];
+			new Float:percentTanks;
+			if (totalDamage[TANK] == 0) {
+				percentTanks = 0.0;
+			}
+			else {
+				percentTanks = ((float(TankDmg)/float(totalDamage[TANK]))*100.00);
+			}
+			// end process Tank %
+			
+			// start  percentage damage
+			new Float:PercentDamage[8];
+			new Float:PercentKills[8];
+			for (new i = 0; i < 8; i++) {
+				if (survivorDmg[option][i] == 0) {
+					PercentDamage[i] = 0.0;
+				}
+				else {
+					PercentDamage[i] = (float(survivorDmg[option][i])/float(totalDamage[i]))*100.00;
+				}
+				
+				if (survivorKills[option][i] == 0) {
+					PercentKills[i] = 0.0;
+				}
+				else {
+					PercentKills[i] = (float(survivorKills[option][i])/float(totalDamage[i]))*100.00;
+				}
+				
+			}			
+			// end SI percentage kills
+			
+			if (detail) {
+				/*
+				Chat: !stats <name> detail
+				 1111111111111111111111111111111111111111111111111
+				1name456789012345678901234567 FF: XXXXX HS: XXXXXX
+				2 [J] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				3 [C] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				4 [H] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				5 [B] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				6[SM] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				7[SP] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				8 [T] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX% 
+				9[CI] XXXX/XXXX Kills (XXXXXXX/XXXXXXX Damage)XXX%
+				*/
+				PrintToChat(printToClient,"\x04%27s FF: %d HS: %d",name,survivorFFDmg[option],survivorHeadShots[option]);
+				PrintToChat(printToClient,"\x04[J] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][JOCKEY],totalKills[JOCKEY], PercentKills[JOCKEY], survivorDmg[option][JOCKEY],totalDamage[JOCKEY],PercentDamage[JOCKEY]);
+				PrintToChat(printToClient,"\x04[C] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][CHARGER],totalKills[CHARGER], PercentKills[CHARGER], survivorDmg[option][CHARGER],totalDamage[CHARGER],PercentDamage[CHARGER]);
+				PrintToChat(printToClient,"\x04[H] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][HUNTER],totalKills[HUNTER], PercentKills[HUNTER], survivorDmg[option][HUNTER],totalDamage[HUNTER],PercentDamage[HUNTER]);
+				PrintToChat(printToClient,"\x04[B] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][BOOMER],totalKills[BOOMER], PercentKills[BOOMER], survivorDmg[option][BOOMER],totalDamage[BOOMER],PercentDamage[BOOMER]);
+				PrintToChat(printToClient,"\x04[SM] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][SMOKER],totalKills[SMOKER], PercentKills[SMOKER], survivorDmg[option][SMOKER],totalDamage[SMOKER],PercentDamage[SMOKER]);
+				PrintToChat(printToClient,"\x04[SP] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][SPITTER],totalKills[SPITTER], PercentKills[SPITTER], survivorDmg[option][SPITTER],totalDamage[SPITTER],PercentDamage[SPITTER]);
+				PrintToChat(printToClient,"\x04[T] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][TANK],totalKills[TANK], PercentKills[TANK], survivorDmg[option][TANK],totalDamage[TANK],PercentDamage[TANK]);
+				PrintToChat(printToClient,"\x04[CI] \x01%4d/%4d \x05Kills \x03%3.0f%% \x01(%7d/%7d \x05Damage) \x03%3.0f%%",survivorKills[option][COMMON],totalKills[COMMON], PercentKills[COMMON], survivorDmg[option][COMMON],totalDamage[COMMON],PercentDamage[COMMON]);
+			}
+			else {
+				/*
+				Chat: !stats <name>
+				 1111111111111111111111111111111111111111111111111
+				1name456789012345678 SI: XXX% CI: XXX% Tanks: XXX%
+				2=================================================
+				3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
+				*/
+				PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+				PrintToChat(printToClient, "========================================");
+				PrintToChat(printToClient,"\x04[SI]: \x01%4d \x05Kills \x04[CI]: \x01%5d \x05Kills \x04[T]: \x01%3d \x05Kills", totalSIKills, totalKills[COMMON], totalKills[TANK]);
+			}
+		
+		
+		
 		}
 	}
 }
@@ -521,7 +595,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new hitgroup;
 
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker < MAXPLAYERS + 1) && (collectStats))
+	if (attacker && (attacker < MaxClients) && (collectStats))
 	{
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) {
@@ -546,7 +620,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	
 
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker < MAXPLAYERS + 1) && collectStats)
+	if (attacker && (attacker < MaxClients) && collectStats)
 	{
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) 
@@ -576,7 +650,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 	}
 
 	// now add all damages from the different clients that are connected and on the survivor team
-	for (new i = 1; i < MAXPLAYERS + 1; i++) {
+	for (new i = 1; i < MaxClients; i++) {
 		// if (IsClientConnected(i) && IsClientInGame(i)) {
 			// new team = GetClientTeam(i);
 
@@ -596,7 +670,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 PrintTankStats(victim) {
 	new Float:percentDmg;
 	
-	for(new i = 0; i < MAXPLAYERS + 1; i++) {
+	for(new i = 0; i < MaxClients; i++) {
 		if (survivorDmgToTank[i][victim] != 0) {
 			/*
 			 1111111111111111111111111111111111111111111111111
@@ -613,8 +687,8 @@ PrintTankStats(victim) {
 }
 
 FindSurvivorClient(String:name[33]) {
-	for (new i = 1; i < MAXPLAYERS +1; i++) {
-		if (GetClientTeam(i) == TEAM_SURVIVOR) {
+	for (new i = 1; i < MaxClients; i++) {
+		if ((IsClientInGame(i)) && (GetClientTeam(i) == TEAM_SURVIVOR)) {
 			new String:clientName[33];
 			GetClientName(i, clientName, sizeof(clientName));
 			if (StrContains(name, clientName, false) == 0) {
