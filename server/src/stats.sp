@@ -228,7 +228,7 @@ PrintStats(printToClient, option, bool:detail) {
 			if (printToClient == 0) { 
 				PrintToChatAll("========================================");
 				if(detail) {
-					PrintToChatAll("\x05SI:\x03%4d \x01(%7d) \x05CI:\x03%4d \x01(%7d) \x05T:\x03%4d \x01(%7d)",totalSIKills, totalSIDamage,
+					PrintToChatAll("\x04SI:\x03%4d \x01kills\x01(%7d) \x04CI:\x03%4d \x01kills \x01(%7d) \x04T:\x03%4d \x01kills \x01(%7d)",totalSIKills, totalSIDamage,
 																											  totalKills[COMMON], totalDamage[COMMON],
 																											  totalKills[TANK], totalDamage[TANK]);
 				}
@@ -240,7 +240,7 @@ PrintStats(printToClient, option, bool:detail) {
 				PrintToChat(printToClient, "========================================");
 				
 				if(detail) {
-					PrintToChat(printToClient,"\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",totalSIKills, totalSIDamage,
+					PrintToChat(printToClient,"\x04SI:\x03%4d \x01kills \x01(%7d) \x04CI:\x03%4d \x01kills \x01(%7d) \x04T:\x03%4d \x01kills \x01(%7d)",totalSIKills, totalSIDamage,
 																											  totalKills[COMMON], totalDamage[COMMON],
 																											  totalKills[TANK], totalDamage[TANK]);
 				}
@@ -267,15 +267,32 @@ PrintStats(printToClient, option, bool:detail) {
 		/*
 		Chat: !stats round
 		 1111111111111111111111111111111111111111111111111
-		1[Jockey]: XXXX [Charger]: XXXX
-		2[Smoker]: XXXX [Spitter]: XXXX
-		3[Boomer]: XXXX  [Hunter]: XXXX
-		4  [Tank]: XXXX
-		5
-		6
-		7
-		8
+		1 [JOCKEY]: XXXX  [TOTAL SI]: XXXX
+		2 [SMOKER]: XXXX    [COMMON]: XXXX
+		3 [BOOMER]: XXXX      [TANK]: XXXX
+		4 [HUNTER]: XXXX
+		5[CHARGER]: XXXX
+		6[SPITTER]: XXXX
+		7 
+		8 
 		*/
+			if (printToClient == 0) {
+				PrintToChatAll("\x04[JOCKEY]: \x01%4d \x04[TOTAL SI]:",totalKills[JOCKEY], totalSIKills);
+				PrintToChatAll("\x04[SMOKER]: \x01%4d \x04[COMMON]: \x01%d",totalKills[SMOKER], totalKills[COMMON]);
+				PrintToChatAll("\x04[BOOMER]: \x01%4d \x04[TANKS]: \x01%d",totalKills[BOOMER],totalKills[TANK]);
+				PrintToChatAll("\x04[HUNTER]: \x01%4d",totalKills[HUNTER]);
+				PrintToChatAll("\x04[CHARGER]: \x01%4d",totalKills[CHARGER]);
+				PrintToChatAll("\x04[SPITTER]: \x01%4d",totalKills[SPITTER]);
+			}
+			else {
+				PrintToChat(printToClient,"\x04[JOCKEY]: \x01%4d \x03[TOTAL SI]: \x01%d",totalKills[JOCKEY], totalSIKills);
+				PrintToChat(printToClient,"\x04[SMOKER]: \x01%4d \x03[COMMON]: \x01%d",totalKills[SMOKER], totalKills[COMMON]);
+				PrintToChat(printToClient,"\x04[BOOMER]: \x01%4d \x03[TANKS]: \x01%d",totalKills[BOOMER],totalKills[TANK]);
+				PrintToChat(printToClient,"\x04[HUNTER]: \x01%4d",totalKills[HUNTER]);
+				PrintToChat(printToClient,"\x04[CHARGER]: \x01%4d",totalKills[CHARGER]);
+				PrintToChat(printToClient,"\x04[SPITTER]: \x01%4d",totalKills[SPITTER]);
+			}
+		
 		}
 		default: {
 		/*
@@ -577,6 +594,8 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 }
 
 PrintTankStats(victim) {
+	new Float:percentDmg;
+	
 	for(new i = 0; i < MAXPLAYERS + 1; i++) {
 		if (survivorDmgToTank[i][victim] != 0) {
 			/*
@@ -586,7 +605,7 @@ PrintTankStats(victim) {
 			3name56789012345678901234567890 XXXX Damage (XXX%)
 			4name56789012345678901234567890 XXXX Damage (XXX%)
 			*/
-			PrintToChatAll("\x03%N \x01%d Damage(%3.0f%%)", i, survivorDmgToTank[i][victim],percentDmg);
+			PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", i, survivorDmgToTank[i][victim],percentDmg);
 			survivorDmgToTank[i][victim] = 0; //reset
 		}
 	}
