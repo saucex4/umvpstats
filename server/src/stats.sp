@@ -85,7 +85,7 @@ public OnPluginStart() {
 }
 
 public OnClientDisconnect(client) {
-	ResetStatsByClient(client);
+	//ResetStatsByClient(client);
 }
 
 
@@ -93,6 +93,7 @@ public OnClientDisconnect(client) {
 /********** COMMAND FUNCTIONS ***********/
 
 public Action:Command_Stats(client, args) {
+	PrintToChatAll("MaxClients = %d, MAXPLAYERS = %d", MaxClients, MAXPLAYERS);
 	new String:arg1[33], String:arg2[33];
 	new clientToPrint;
 	
@@ -437,6 +438,7 @@ public Action:ResetStats(client, args) {
 		SIHealth[i]  = 0;
 	}
 	ResetCIHealth();
+	PrintToChat(client,"\x01Stats have been \x04RESET");
 }
 
 
@@ -635,7 +637,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new realdamage; // TODO: (?) The real damage done to the zombie
 	new model_id;
 
-	model_id = GetEntProp(victim, PROP_SEND, "m_nModelIndex");
+	model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
 
 	new maxhp = DEFAULT_HP;
 
@@ -697,6 +699,9 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) 
 		{
+			if (!survivor[attacker]) {
+				survivor[attacker] = true;
+			}
 			survivorKills[attacker][COMMON]++;
 		}
 	}
@@ -753,6 +758,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 
 PrintTankStats(victim) {
 	new records[MaxClients][2];
+	new percentDmg = 0;
 	
 	for(new i = 0; i < MaxClients; i++) {
 		if (survivorDmgToTank[i][victim] != 0) {
