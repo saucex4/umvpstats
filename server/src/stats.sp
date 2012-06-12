@@ -200,10 +200,10 @@ PrintStats(printToClient, option, bool:detail) {
 					// end process Tank %
 					
 					if (printToClient == 0) { // print to everyone
-						PrintToChatAll("\x04%19.19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+						PrintToChatAll("\x04%s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
 					}
 					else if(printToClient > 0) { // print to specific client
-						PrintToChat(printToClient,"\x04%19.19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+						PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
 					}
 					
 					// process total SI kills
@@ -212,12 +212,12 @@ PrintStats(printToClient, option, bool:detail) {
 					
 					if(detail) {
 						if (printToClient == 0) {
-							PrintToChatAll("\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",SIKills, clientSIDamage,
+							PrintToChatAll("\x05SI:\x03%4d \x01(%d) \x05CI:\x03%4d \x01(%7d) \x05T:\x03%4d \x01(%7d)",SIKills, clientSIDamage,
 																											  CIKills, survivorDmg[i][COMMON],
 																											  survivorKills[i][TANK], survivorDmg[i][TANK]);
 						}
 						else if (printToClient > 0) {
-							PrintToChat(printToClient,"\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",SIKills, clientSIDamage,
+							PrintToChat(printToClient,"\x05SI:\x03%4d \x01(%d) \x05CI:\x03%4d \x01(%7d) \x05T:\x03%4d \x01(%7d)",SIKills, clientSIDamage,
 																											  CIKills, survivorDmg[i][COMMON],
 																											  survivorKills[i][TANK], survivorDmg[i][TANK]);
 						}
@@ -226,9 +226,9 @@ PrintStats(printToClient, option, bool:detail) {
 			}
 			
 			if (printToClient == 0) { 
-				PrintToChatAll("=================================================");
+				PrintToChatAll("========================================");
 				if(detail) {
-					PrintToChatAll("\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",totalSIKills, totalSIDamage,
+					PrintToChatAll("\x05SI:\x03%4d \x01(%7d) \x05CI:\x03%4d \x01(%7d) \x05T:\x03%4d \x01(%7d)",totalSIKills, totalSIDamage,
 																											  totalKills[COMMON], totalDamage[COMMON],
 																											  totalKills[TANK], totalDamage[TANK]);
 				}
@@ -237,7 +237,7 @@ PrintStats(printToClient, option, bool:detail) {
 				}
 			}
 			else if(printToClient > 0) {
-				PrintToChat(printToClient, "=================================================");
+				PrintToChat(printToClient, "========================================");
 				
 				if(detail) {
 					PrintToChat(printToClient,"\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",totalSIKills, totalSIDamage,
@@ -586,7 +586,7 @@ PrintTankStats(victim) {
 			3name56789012345678901234567890 XXXX Damage (XXX%)
 			4name56789012345678901234567890 XXXX Damage (XXX%)
 			*/
-			PrintToChatAll("%N %d", i, survivorDmgToTank[i][victim]);
+			PrintToChatAll("\x03%N \x01%d Damage(%3.0f%%)", i, survivorDmgToTank[i][victim],percentDmg);
 			survivorDmgToTank[i][victim] = 0; //reset
 		}
 	}
