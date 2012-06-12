@@ -18,7 +18,7 @@
 #include <sourcemod>
 new bool:survivor[MAXPLAYERS + 1];    // active survivors
 new survivorKills[MAXPLAYERS + 1][8]; // stores the kills for each survivor for each SI type
-new survivorDmg[MAXPLAYERS + 1][8];   // stores the kills for each survivor for each SI type
+new survivorDmg[MAXPLAYERS + 1][8];   // stores the dmg for each survivor for each SI type
 								      // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
 new survivorHeadShots[MAXPLAYERS + 1]; // headshot counter
 new survivorFFDmg[MAXPLAYERS + 1];     // friendly fire counter
@@ -138,7 +138,8 @@ PrintStats(printToClient, option, bool:detail) {
 	new totalKills[8];
 	
 	TotalDamage(totalDamage, totalKills);
-	
+	new totalSIDamage = totalDamage[HUNTER] + totalDamage[JOCKEY] + totalDamage[CHARGER] + totalDamage[SPITTER] + totalDamage[SMOKER] + totalDamage[BOOMER];
+	new totalSIKills = totalKills[HUNTER] + totalKills[JOCKEY] + totalKills[CHARGER] + totalKills[SMOKER] + totalKills[SPITTER] + totalKills[BOOMER];
 	switch (option) {
 		case 0: {
 		/*
@@ -153,7 +154,8 @@ PrintStats(printToClient, option, bool:detail) {
 		7name567890123456789 SI: XXX% CI: XXX% Tanks: XXX%
 		8SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
 		9=================================================
-		0SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
+		0[SI]: XXXX Kills [CI]: XXXXX Kills [T]: XXX Kills <-- skip if detail flag is true
+		1SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
 		*/
 			for (new i = 1; i < MAXPLAYERS + 1; i++) {
 				if (survivor[i]) {
@@ -164,8 +166,6 @@ PrintStats(printToClient, option, bool:detail) {
 					
 					// process SI %
 					new SIKills   = survivorKills[i][HUNTER] + survivorKills[i][JOCKEY] + survivorKills[i][CHARGER] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER];
-					new totalSIKills = totalKills[HUNTER] + totalKills[JOCKEY] + totalKills[CHARGER] + totalKills[SMOKER] + totalKills[SPITTER] + totalKills[BOOMER];
-					
 					new Float:percentSI;
 
 					if (totalSIKills == 0) {
@@ -188,61 +188,66 @@ PrintStats(printToClient, option, bool:detail) {
 					// end process CI %
 					
 					// process Tank %
-					new TankKills   = survivorKills[i][TANK];
+					new TankDmg   = survivorDmg[i][TANK];
 					new Float:percentTanks;
-					if (totalKills[TANK] == 0) {
+					if (totalDamage[TANK] == 0) {
 						percentTanks = 0.0;
 					}
 					else {
-						percentTanks = ((float(TankKills)/float(totalKills[TANK]))*100.00);
+						percentTanks = ((float(TankDmg)/float(totalDamage[TANK]))*100.00);
 					}
 					
 					// end process Tank %
 					
 					if (printToClient == 0) { // print to everyone
-						PrintToChatAll("\x04%19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+						PrintToChatAll("\x04%19.19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
 					}
 					else if(printToClient > 0) { // print to specific client
-						PrintToChat(printToClient,"\x04%19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+						PrintToChat(printToClient,"\x04%19.19s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
 					}
 					
 					// process total SI kills
 					
-					// process total SI damage
+					new clientSIDamage = survivorDmg[i][HUNTER] + survivorDmg[i][JOCKEY] + survivorDmg[i][CHARGER] + survivorDmg[i][SPITTER] + survivorDmg[i][SMOKER] + survivorDmg[i][BOOMER];
 					
-					// process total CI kills
-					
-					// process total CI damage
-					
-					// process total tank kills
-					
-					// process total tank damage
-					
-					
-					/*
 					if(detail) {
 						if (printToClient == 0) {
-							PrintToChatAll("\x05SI:\x03%s\x01(%s) \x05CI:\x03%s\x01(%s) \x05T:\x03%s\x01(%s)",properClientTSI, properClientTSIDmg,
-																											  properClientTCI, properClientTSIDmg,
-																											  properClientTTank, properClientTTankDmg);
+							PrintToChatAll("\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",SIKills, clientSIDamage,
+																											  CIKills, survivorDmg[i][COMMON],
+																											  survivorKills[i][TANK], survivorDmg[i][TANK]);
 						}
-						else if (printtoClient > 0) {
-							PrintToChat(printToClient,"\x05SI:\x03%s\x01(%s) \x05CI:\x03%s\x01(%s) \x05T:\x03%s\x01(%s)",properClientTSI, properClientTSIDmg,
-																														 properClientTCI, properClientTSIDmg,
-																														 properClientTTank, properClientTTankDmg);
+						else if (printToClient > 0) {
+							PrintToChat(printToClient,"\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",SIKills, clientSIDamage,
+																											  CIKills, survivorDmg[i][COMMON],
+																											  survivorKills[i][TANK], survivorDmg[i][TANK]);
 						}
-					}*/
+					}
 				}
 			}
-			/*
+			
 			if (printToClient == 0) { 
 				PrintToChatAll("=================================================");
-				PrintToChatAll("\x04[SI]: \x01%s \x05Kills \x04[CI]: \x01%s \x05Kills \x04[T]: \x01%s \x05Kills", properTSI, properCSI, properT);
+				if(detail) {
+					PrintToChatAll("\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",totalSIKills, totalSIDamage,
+																											  totalKills[COMMON], totalDamage[COMMON],
+																											  totalKills[TANK], totalDamage[TANK]);
+				}
+				else {
+					PrintToChatAll("\x04[SI]: \x01%4d \x05Kills \x04[CI]: \x01%5d \x05Kills \x04[T]: \x01%3d \x05Kills", totalSIKills, totalKills[COMMON], totalKills[TANK]);
+				}
 			}
 			else if(printToClient > 0) {
 				PrintToChat(printToClient, "=================================================");
-				PrintToChat(printToClient,"\x04[SI]: \x01%s \x05Kills \x04[CI]: \x01%s \x05Kills \x04[T]: \x01%s \x05Kills", properTSI, properCSI, properT);
-			}*/
+				
+				if(detail) {
+					PrintToChat(printToClient,"\x05SI:\x03%4d\x01(%7d) \x05CI:\x03%4d\x01(%7d) \x05T:\x03%4d\x01(%7d)",totalSIKills, totalSIDamage,
+																											  totalKills[COMMON], totalDamage[COMMON],
+																											  totalKills[TANK], totalDamage[TANK]);
+				}
+				else {
+					PrintToChat(printToClient,"\x04[SI]: \x01%4d \x05Kills \x04[CI]: \x01%5d \x05Kills \x04[T]: \x01%3d \x05Kills", totalSIKills, totalKills[COMMON], totalKills[TANK]);
+				}
+			}
 		}
 		case 10000: {
 		/*
