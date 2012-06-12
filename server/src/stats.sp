@@ -16,6 +16,9 @@
 #pragma semicolon 1
 
 #include <sourcemod>
+
+#define MAXENTITIES 2048
+
 new bool:survivor[MAXPLAYERS + 1];    // active survivors
 new survivorKills[MAXPLAYERS + 1][8]; // stores the kills for each survivor for each SI type
 new survivorDmg[MAXPLAYERS + 1][8];   // stores the dmg for each survivor for each SI type
@@ -23,6 +26,7 @@ new survivorDmg[MAXPLAYERS + 1][8];   // stores the dmg for each survivor for ea
 new survivorHeadShots[MAXPLAYERS + 1]; // headshot counter
 new survivorFFDmg[MAXPLAYERS + 1];     // friendly fire counter
 new SIHealth[MAXPLAYERS + 1];         // tracks SI + Tank health
+new CIHealth[MAXENTITIES + 1];        // Tracks health of every common infected. This is inefficient memory usage since not all entities (array elements) are common infected.
 
 // multiple tank support variables
 new bool:SIClients[MAXPLAYERS + 1];   // current clients that are SI
@@ -515,10 +519,17 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	new victim = entityid;
+	new String:victimName[40];
 
-	
-	new damage = 0;
-	new hitgroup;
+	// retrieve the damage and hitgroup
+	new damage = GetEventInt(event, "amount");
+	new hitgroup = GetEventInt(event, "hitgroup");
+	new realdamage; // TODO: (?) The real damage done to the zombie
+
+	GetClientModel(victim, victimName, sizeof(victimName));
+	// TODO: this is for testing purposes, remove later
+	PrintToChatAll("infected hurt model: %s", victimName);
 
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (attacker && (attacker < MAXPLAYERS + 1) && (collectStats))
@@ -526,9 +537,6 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) {
 			survivor[attacker] = true;
-			// retrieve the damage and hitgroup
-			damage    = GetEventInt(event, "amount");
-			hitgroup  = GetEventInt(event, "hitgroup");
 
 			survivorDmg[attacker][COMMON] += damage;
 
@@ -558,6 +566,18 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 
 
 /********** HELPER FUNCTIONS ***********/
+
+//--------------------------------------------------
+// ResetSIHealth
+//!
+//! \brief Resets the SI health array to zero
+//--------------------------------------------------
+
+ResetSIHealth() {
+	for (new i = 0; i < MAXENTITIES; i++) {
+		SIHealth[i] = 0;
+	}
+}
 
 //--------------------------------------------------
 // TotalDamage
