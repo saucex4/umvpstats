@@ -93,7 +93,7 @@ public OnClientDisconnect(client) {
 /********** COMMAND FUNCTIONS ***********/
 
 public Action:Command_Stats(client, args) {
-	PrintToChatAll("MaxClients = %d, MAXPLAYERS = %d", MaxClients, MAXPLAYERS);
+
 	new String:arg1[33], String:arg2[33];
 	new clientToPrint;
 	
@@ -438,7 +438,9 @@ public Action:ResetStats(client, args) {
 		SIHealth[i]  = 0;
 	}
 	ResetCIHealth();
-	PrintToChat(client,"\x01Stats have been \x04RESET");
+	if (client != 0) {
+		PrintToChat(client,"\x01Stats have been \x04RESET");
+	}
 }
 
 
@@ -500,6 +502,8 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	if ((attacker != 0) && collectStats) { //check if the attacker is Console/World if not then move forward
 		new attackerTeam = GetClientTeam(attacker);
 		if(attackerTeam == TEAM_SURVIVOR) { //survivor damage including bots
+			// DEBUG
+			PrintToChatAll("a = %d, dmg = %d, vic = %d, hg = %d",attacker, damage,victim, hitgroup);
 			survivor[attacker] = true;
 			//record survivor attack
 			if ((hitgroup == 1) && (victimTeam != TEAM_SURVIVOR)) {
@@ -558,6 +562,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
                 }
 				else if (StrContains(victimName, "Boomer", false) != -1) {
 					if (victimRemainingHealth == 0) { //kill shot
+						PrintToChatAll("dmg = %d, kills = %d",survivorDmg[attacker][BOOMER], survivorKills[attacker][BOOMER]);
 						survivorDmg[attacker][BOOMER] += SIHealth[victim];
 						survivorKills[attacker][BOOMER]++;
 					}
@@ -580,7 +585,6 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 					//deal with multiple tanks here
 					if (SIClients[victim]) { //if this tank is alive record
 						if ((SIHealth[victim] <= 0) || (victimRemainingHealth > SIHealth[victim])) {
-							
 							survivorDmgToTank[attacker][victim] += SIHealth[victim];
 							survivorDmg[attacker][TANK] += SIHealth[victim];
 							SIClients[victim] = false;
@@ -781,7 +785,7 @@ FindSurvivorClient(String:name[33]) {
 		if ((IsClientInGame(i)) && (GetClientTeam(i) == TEAM_SURVIVOR)) {
 			new String:clientName[33];
 			GetClientName(i, clientName, sizeof(clientName));
-			if (StrContains(name, clientName, false) == 0) {
+			if (StrContains(clientName, name, false) == 0) {
 				return i;
 			}
 		}
