@@ -79,19 +79,13 @@ public OnPluginStart() {
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
 	HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
-	
+	HookEvent("player_disconnect", Event_PlayerDisconnect);
 	//console commands
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
 	RegConsoleCmd("sm_resetstats", ResetStats);
 }
 
-public OnClientDisconnect(client) {
-	//ResetStatsByClient(client);
-}
-
-
-
-/********** COMMAND FUNCTIONS ***********/
+/* ********* COMMAND FUNCTIONS ********** */
 
 public Action:Command_Stats(client, args) {
 
@@ -204,7 +198,7 @@ PrintStats(printToClient, option, bool:detail) {
 						percentCI = 0.0;
 					}
 					else {
-						percentCI =(float(CIKills)/float(totalKills[COMMON]))*100.00;
+						percentCI =(float(CIKills)/float(totalKills[COMMON]))* 100.00;
 					}
 					// end process CI %
 					
@@ -215,7 +209,7 @@ PrintStats(printToClient, option, bool:detail) {
 						percentTanks = 0.0;
 					}
 					else {
-						percentTanks = ((float(TankDmg)/float(totalDamage[TANK]))*100.00);
+						percentTanks = ((float(TankDmg)/float(totalDamage[TANK]))* 100.00);
 					}
 					
 					// end process Tank %
@@ -291,6 +285,7 @@ PrintStats(printToClient, option, bool:detail) {
 		7name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
 		8FF: XXX HS: XXXXX Total Dmg: XXXXXX
 		*/
+		/*
 			new players = 0;
 			new clientTankDamage[MaxClients];
 			new clientSIKills[MaxClients];
@@ -299,9 +294,9 @@ PrintStats(printToClient, option, bool:detail) {
 			
 			for (new i = 0; i < MaxClients; i++) {
 				if (survivor[i]) {
-					clientTankDamage[players] = survivorDmg[i][TANK];
-					clientSIKills             = survivorKills[i][HUNTER] + survivorKills[i][CHARGER] + survivorKills[i][JOCKEY] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER]; 
-					clientCIKills             = survivorKills[i][COMMON];
+					//clientTankDamage[players] = survivorDmg[i][TANK];
+					//clientSIKills[players]    = survivorKills[i][HUNTER] + survivorKills[i][CHARGER] + survivorKills[i][JOCKEY] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER]; 
+					//clientCIKills[players]    = survivorKills[i][COMMON];
 					clientID[players]         = i;
 					players++;
 				}
@@ -354,6 +349,7 @@ PrintStats(printToClient, option, bool:detail) {
 					}
 				}
 			}
+			*/
 		}
 		case 20000: {
 		/*
@@ -478,7 +474,7 @@ PrintStats(printToClient, option, bool:detail) {
 				2=================================================
 				3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
 				*/
-				PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
+				PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.1f%% \x05CI: \x01%3.1f%% \x05Tanks: \x01%3.1f%%",name, percentSI, percentCI, percentTanks);
 				PrintToChat(printToClient, "========================================");
 				PrintToChat(printToClient,"\x04[SI]: \x01%4d \x05Kills \x04[CI]: \x01%5d \x05Kills \x04[T]: \x01%3d \x05Kills", totalSIKills, totalKills[COMMON], totalKills[TANK]);
 			}
@@ -514,7 +510,19 @@ public Action:ResetStats(client, args) {
 
 
 
-/********** EVENT FUNCTIONS ***********/
+/* ********* EVENT FUNCTIONS ********** */
+
+public Event_PlayerDisconnect(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event,"userid"));
+	if( client && !IsFakeClient(client) && !dontBroadcast ) {
+		ResetStatsByClient(client);
+		if (DEBUG == 1) {
+			PrintToChatAll("\x01Event_PlayerDisconnect FIRED for \x03[%d] %N \x01(stats \x04RESET)",client, client);
+		}
+	}
+	
+	
+}
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 	ResetStats(0,0);
@@ -787,7 +795,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 }
 
 
-/********** HELPER FUNCTIONS ***********/
+/* ********* HELPER FUNCTIONS ********** */
 
 //--------------------------------------------------
 // ResetCIHealth
@@ -857,8 +865,8 @@ PrintTankStats(victim) {
 	
 	new bool:first = true;
 	for (new j = 0; j < players; j++) {
-		for (new k = 0; k < MaxClients; k++) {
-			if (survivorDmgToTank[k][victim] == damage[j]) {
+		for (new k = 1; k < MaxClients; k++) {
+			if ((survivorDmgToTank[k][victim] == damage[j]) && survivor[k]) {
 				percent = (float(damage[j]) / float(maxHealth))* 100.00;
 				if (first) {
 					first = false;
@@ -894,7 +902,7 @@ FindSurvivorClient(String:name[33]) {
 }
 
 bool:ResetStatsByClient(client) {
-	if (client <= MaxClients) {
+	if ((client <= MaxClients) && (survivor[client])) {
 		survivor[client]          = false;
 		survivorHeadShots[client] = 0;
 		survivorFFDmg[client]     = 0;
