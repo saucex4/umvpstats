@@ -62,6 +62,70 @@ new roundEnded = false;
 new collectStats = false;
 new const DEBUG = 0;
 
+// Left 4 Dead 2 weapon names-----------------------
+new const NUM_WEAPONS = 47;
+//! \brief these are the weapon names obtained through a call to GetClientWeapon()
+decl const String:WEAPON_NAMES[][64] =
+{
+	"weapon_autoshotgun",
+	"weapon_grenade_launcher",
+	"weapon_hunting_rifle",
+	"weapon_pistol",
+	"weapon_pistol_magnum",
+	"weapon_pumpshotgun",
+	"weapon_rifle",
+	"weapon_rifle_ak47",
+	"weapon_rifle_desert",
+	"weapon_rifle_m60",
+	"weapon_rifle_sg552",
+	"weapon_shotgun_chrome",
+	"weapon_shotgun_spas",
+	"weapon_smg",
+	"weapon_smg_mp5",
+	"weapon_smg_silenced",
+	"weapon_sniper_awp",
+	"weapon_sniper_military",
+	"weapon_sniper_scout",
+	"weapon_baseball_bat",
+	"weapon_cricket_bat",
+	"weapon_crowbar",
+	"weapon_electric_guitar",
+	"weapon_fireaxe",
+	"weapon_frying_pan",
+	"weapon_golfclub",
+	"weapon_katana",
+	"weapon_machete",
+	"weapon_tonfa",
+	"weapon_knife",
+	"weapon_chainsaw",
+	"weapon_adrenaline",
+	"weapon_defibrillator",
+	"weapon_first_aid_kit",
+	"weapon_pain_pills",
+	"weapon_fireworkcrate",
+	"weapon_gascan",
+	"weapon_oxygentank",
+	"weapon_propanetank",
+	"weapon_molotov",
+	"weapon_pipe_bomb",
+	"weapon_vomitjar",
+	"weapon_ammo_spawn",
+	"weapon_upgradepack_explosive",
+	"weapon_upgradepack_incendiary",
+	"weapon_gnome",
+	"weapon_cola_bottles"
+};
+
+//! \brief These are the sniper weapons that can instantly kill a common infected in normal difficulty
+new const NUM_INSTAKILL_WEAPONS = 4;
+decl const String:INSTAKILL_WEAPONS[][64] =
+{
+	"weapon_sniper_awp",
+	"weapon_sniper_military",
+	"weapon_sniper_scout",
+	"weapon_hunting_rifle"
+};
+
 public Plugin:myinfo = {
 		   name = "stats",
 		 author = "sauce & guyguy",
@@ -721,9 +785,14 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	// retrieve the damage and hitgroup
 	new damage = GetEventInt(event, "amount");
 	new hitgroup = GetEventInt(event, "hitgroup");
-	new realdamage; // TODO: (?) The real damage done to the zombie
+	new realdamage;
 	new model_id;
+	decl String:weapon[64];
 
+	// get the attackers weapon
+	GetClientWeapon(attacker, weapon, sizeof(weapon));
+
+	// get the model index of the damaged zombie
 	model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
 
 	new maxhp = DEFAULT_HP;
@@ -737,9 +806,19 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		}
 	}
 
+	bool:instakill_weapon = false;
+
+	// run through all the instakill weapons and check
+	for (new i = 0; i < NUM_INSTAKILL_WEAPONS; i++) {
+		if (StrEqual(weapon, INSTAKILL_WEAPONS[I]) == true) {
+			instakill_weapon = true;
+		}
+	}
+
 	// if the damage is 1 (due to fire), modify the damage to a killing blow.
-	// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283)
-	if ((damage == 1 || GetEventInt(event, "hitgroup") == 1) && model_id != 283) {
+	// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283).
+	// As well, check if it is an insta-kill weapon, which will destroy the zombie in one shot regardless of the hitgroup.
+	if ((damage == 1 || GetEventInt(event, "hitgroup") == 1 || instakill_weapon == true) && model_id != 283) {
 		damage = maxhp;
 	}
 
