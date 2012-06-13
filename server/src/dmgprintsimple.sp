@@ -188,8 +188,10 @@ public OnPluginStart()
 	RegConsoleCmd("sm_umvp_output_player_table", Command_OutputPlayerTable);
 	RegConsoleCmd("sm_umvp_help", Command_Help);
 	RegConsoleCmd("sm_umvp_connect_test_db", Command_ConnectTestDB);
-	RegConsoleCmd("sm_add_official_maps", Command_AddOfficialMaps);
+	RegConsoleCmd("sm_umvp_add_official_maps", Command_AddOfficialMaps);
+	RegConsoleCmd("sm_umvp_add_weapon", Command_AddWeapon);
 	RegConsoleCmd("sm_umvp_output_maps_table", Command_OutputMapsTable);
+	RegConsoleCmd("sm_umvp_output_weapons_table", Command_OutputWeaponTable);
 
 	PrepareConnection();
 }
@@ -373,7 +375,7 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 // TestDB SQL Commands
 //==================================================
 
-new const NUM_TEST_COMMANDS = 6;
+new const NUM_TEST_COMMANDS = 16;
 new String:sql_test_commands[][1024] =
 {
 	"DROP TABLE IF EXISTS player;",
@@ -405,7 +407,18 @@ new String:sql_test_commands[][1024] =
 //--------------------------------------------------
 public Action:Command_Help(client, args)
 {
-	PrintToChat(client, "Available Commands:\nsm_umvp_add_player\nsm_umvp_output_player_table\nsm_umvp_help\nsm_umvp_connect_test_db\nsm_add_official_maps\nsm_umvp_output_maps_table");
+	decl String:message[1024];
+
+	Format(message, sizeof(message), "Available Commands:\n");
+	StrCat(message, sizeof(message), "sm_umvp_help\n");
+	StrCat(message, sizeof(message), "sm_umvp_connect_test_db\n");
+	StrCat(message, sizeof(message), "sm_umvp_add_player\n");
+	StrCat(message, sizeof(message), "sm_umvp_add_official_maps\n");
+	StrCat(message, sizeof(message), "sm_umvp_add_weapon\n");
+	StrCat(message, sizeof(message), "sm_umvp_output_player_table\n");
+	StrCat(message, sizeof(message), "sm_umvp_output_maps_table\n");
+	StrCat(message, sizeof(message), "sm_umvp_output_weapons_table\n");
+
 	return Plugin_Handled;
 }
 
@@ -483,13 +496,38 @@ public Action:Command_OutputPlayerTable(client, args)
 }
 
 //--------------------------------------------------
+// Command_OutputWeaponTable
+//!
+//! \brief This command is used to output the entire player table to console.
+//--------------------------------------------------
+public Action:Command_OutputWeaponTable(client, args)
+{
+	QueryWeapons(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
 // Command_AddOfficialMaps
 //!
 //! \brief This command is used to add the official maps into the maps table
 //--------------------------------------------------
 public Action:Command_AddOfficialMaps(client, args)
 {
-	AddOfficialMaps();
+	AddOfficialMaps(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddWeapon
+//!
+//! \brief This command is used to add the official maps into the maps table
+//--------------------------------------------------
+public Action:Command_AddWeapon(client, args)
+{
+	decl String:weapon[128];
+	// get the client's weapon
+	GetClientWeapon(client, weapon, sizeof(weapon));
+	AddWeapon(client, weapon);
 	return Plugin_Handled;
 }
 
@@ -498,12 +536,28 @@ public Action:Command_AddOfficialMaps(client, args)
 //==================================================
 
 //--------------------------------------------------
+// AddWeapon
+//!
+//! \brief Adds the provided weapon into the weapons table
+//! \param[in] client the client index of the player who invoked the function
+//! \param[in] weapon the name of the weapon (null-terminated string)
+//! \param[in] length length of weapon string
+//--------------------------------------------------
+AddWeapon(client, String:weapon[])
+{
+	decl String:query[128];
+	PrintToConsole(client, "Adding weapon %s...", weapon);
+	Format(query, sizeof(query), "INSERT INTO weapon (name) VALUES (\'%s\')", weapon);
+	SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+}
+
+//--------------------------------------------------
 // AddOfficialMaps
 //!
 //! \brief Adds the official maps into the maps table
 //! \details Uses the global string arrays OFFICIAL_MAPS_2 and CAMPAIGNS to fill in information for the official maps.
 //--------------------------------------------------
-AddOfficialMaps()
+AddOfficialMaps(client)
 {
 	decl String:query[500];
 
@@ -511,7 +565,8 @@ AddOfficialMaps()
 	{
 		// create the SQL insert command to insert the official maps
 		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (\'%s\', \'%s\', 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
-		SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+		PrintToConsole(client, "Adding Official Maps...");
+		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
 	}
 }
 
@@ -598,6 +653,58 @@ AddNewClient(client)
 	// create a query string for inserting the data into the table
 	Format(query, sizeof(query), "REPLACE INTO player (steamID, name) VALUES (\'%s\', \'%s\')", steamid, name);
 	SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+}
+
+//--------------------------------------------------
+// QueryWeapons
+//!
+//! \brief Queries the database for the weapons in the weapon table
+//--------------------------------------------------
+QueryWeapons(client)
+{
+	PrintToConsole(client, "Outputting Weapons Table...");
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT weaponID, name FROM weapon ORDER BY weaponID");
+	SQL_TQuery(test_db_sqlite, PostQueryPlayers, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryWeapons
+//!
+//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the weapons in the database.
+//--------------------------------------------------
+public PostQueryWeapons(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:weaponid[64];
+	decl String:name[64];
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToConsole(client, error);
+		return;
+	}
+
+	new length = SQL_GetRowCount(result);
+
+	new Handle:dataPackHandle = CreateDataPack();
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, weaponid, sizeof(weaponid));
+		SQL_FetchString(result, 1, name, sizeof(name));
+		Format(buf, sizeof(buf), "%s %s", weaponid, name);
+		PrintToConsole(client, buf);
+		WritePackString(dataPackHandle, buf);
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
 }
 
 //--------------------------------------------------
@@ -714,6 +821,23 @@ OutputDataPackStrings(client, Handle:dataPackHandle, length)
 	{
 		ReadPackString(dataPackHandle, buf, sizeof(buf));
 		PrintToConsole(client, buf);
+	}
+}
+
+//--------------------------------------------------
+// PostQueryPrintErrors
+//!
+//! \brief Callback that prints out any errors that occur
+//!
+//! \param[in] data the client index
+//--------------------------------------------------
+public PostQueryPrintErrors(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToConsole(client, error);
 	}
 }
 
