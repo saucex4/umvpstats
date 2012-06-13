@@ -474,7 +474,7 @@ PrintStats(printToClient, option, bool:detail) {
 				2=================================================
 				3[SI]: XXX Kills [CI]: XXXXX Kills [T]: XXX Kills
 				*/
-				PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.1f%% \x05CI: \x01%3.1f%% \x05Tanks: \x01%3.1f%%",name, percentSI, percentCI, percentTanks);
+				PrintToChat(printToClient,"\x04%s \x05SI: \x01%3.0f%% \x05CI: \x01%3.0f%% \x05Tanks: \x01%3.0f%%",name, percentSI, percentCI, percentTanks);
 				PrintToChat(printToClient, "========================================");
 				PrintToChat(printToClient,"\x04[SI]: \x01%4d \x05Kills \x04[CI]: \x01%5d \x05Kills \x04[T]: \x01%3d \x05Kills", totalSIKills, totalKills[COMMON], totalKills[TANK]);
 			}
@@ -866,18 +866,19 @@ PrintTankStats(victim) {
 	new bool:first = true;
 	for (new j = 0; j < players; j++) {
 		for (new k = 1; k < MaxClients; k++) {
-			if ((survivorDmgToTank[k][victim] == damage[j]) && survivor[k]) {
+			if ((survivorDmgToTank[k][victim] == damage[j]) && survivor[k] && (GetClientTeam(k) == TEAM_SURVIVOR)) {
 				percent = (float(damage[j]) / float(maxHealth))* 100.00;
 				if (first) {
 					first = false;
 					PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
 				}
+				/*
 				else if (j == (players - 1)) { // last one
 					PrintToChatAll("\x01[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
 				}
 				else if (damage[j] == 0) {
 					PrintToChatAll("\x01[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
-				}
+				}*/
 				else {
 					PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
 				}
