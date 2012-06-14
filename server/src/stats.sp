@@ -1,4 +1,4 @@
-/*****************************************************************************
+/* ****************************************************************************
 * Simple Survival Stats
 * By sauce & guyguy
 * 
@@ -10,38 +10,48 @@
 *           !stats mvp [detail] <--- round stats with MVP info
 *		 !stats <name> [detail] <--- stats for specific player
 *		               [detail] <--- optional detail flag for more information
-*          !resetstats [detail]
-*****************************************************************************/
+*          !resetstats          <--- Admin Command for resetting stats
+*
+* Code Index: 1.000 MAIN COMPILER DIRECTIVES
+*             2.000 PLUGIN INFORMATION
+*             3.000 GLOBAL CONSTANTS
+*             4.000 GLOBAL VARIABLES
+*             5.000 GENERAL CALLBACK FUNCTIONS
+*             6.000 ADMIN COMMAND FUNCTIONS
+*			  7.000 CONSOLE COMMAND FUNCTIONS
+*			  8.000 EVENT CALLBACK FUNCTIONS
+*             9.000 HELPER FUNCTIONS
+* 
+* Features to add: Weapon Stats (requested by phoenix)
+*                  Headshot % not count (requested by sauce)
+*                  
+* Acknowledgements: beatslaughter   - for code from his survival helpers plugin
+*                   Domino Effect   - for pre-alpha testing
+*                   phoenix_advance - for pre-alpha testing 
+*                   trash           - for pre-alpha testing
+*                   aTastyCookie    - for pre-alpha testing
+*
+**************************************************************************** */
 
-
+/* [1.000]***************MAIN COMPILER DIRECTIVES*************** */
 #pragma semicolon 1
 
 #include <sourcemod>
 
 #define MAXENTITIES 2048
+#define DEBUG 0
 
-new bool:survivor[MAXPLAYERS + 1];    // active survivors
-new survivorKills[MAXPLAYERS + 1][8]; // stores the kills for each survivor for each SI type
-new survivorDmg[MAXPLAYERS + 1][8];   // stores the dmg for each survivor for each SI type
-								      // 0) common 1) hunter 2) jockey 3) charger 4) spitter 5) boomer 6) smoker 7) tank
-new survivorHeadShots[MAXPLAYERS + 1]; // headshot counter
-new survivorFFDmg[MAXPLAYERS + 1];     // friendly fire counter
-new SIHealth[MAXPLAYERS + 1];         // tracks SI + Tank health
-new CIHealth[MAXENTITIES + 1];        // Tracks health of every common infected. This is inefficient memory usage since not all entities (array elements) are common infected.
+/* [2.000]***************PLUGIN INFORMATION*************** */
+public Plugin:myinfo = {
+		   name = "[S3] Simple Survival Stats",
+		 author = "sauce & guyguy",
+	description = "Statistics collection and display plugin",
+		version = "0.0.1"
+};
 
-// multiple tank support variables
-new bool:SIClients[MAXPLAYERS + 1];   // current clients that are SI
-new survivorDmgToTank[MAXPLAYERS + 1][MAXPLAYERS +1]; // tracks individual dmg to tank by survivor for multiple tank support
+/* [3.000]***************GLOBAL CONSTANTS*************** */
 
-// Constants for different CI model ids-------------
-// NOTE: Works for survival mode only. In the future, check the cvar
-// BIO_ZOMBIE, CONSTRUCTION_ZOMBIE, CLOWN_ZOMBIE, SURVIVOR_ZOMBIE, RIOT_ZOMBIE
-new const NUM_SPECIAL_ZOMBIES = 5;
-new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232};
-new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50};
-new const DEFAULT_HP = 50;
-
-// Constants for different SI types-----------------
+// Constants for different infected types----------------
 new const COMMON  = 0;
 new const HUNTER  = 1;
 new const JOCKEY  = 2;
@@ -52,20 +62,23 @@ new const SMOKER  = 6;
 new const TANK    = 7;
 
 // Constants for the different teams----------------
-const TEAM_NONE       = 0;
-const TEAM_SPECTATOR  = 1;
-const TEAM_SURVIVOR   = 2;
-const TEAM_INFECTED   = 3;
+new const TEAM_NONE       = 0;
+new const TEAM_SPECTATOR  = 1;
+new const TEAM_SURVIVOR   = 2;
+new const TEAM_INFECTED   = 3;
 
-// Other vars
-new roundEnded = false;
-new collectStats = false;
-new const DEBUG = 0;
+// Constants for different CI model ids-------------
+// NOTE: Works for survival mode only. In the future, check the cvar
+// BIO_ZOMBIE, CONSTRUCTION_ZOMBIE, CLOWN_ZOMBIE, SURVIVOR_ZOMBIE, RIOT_ZOMBIE
+new const NUM_SPECIAL_ZOMBIES = 5;
+new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232};
+new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50};
+new const DEFAULT_HP = 50;
 
 // Left 4 Dead 2 weapon names-----------------------
 new const NUM_WEAPONS = 47;
 //! \brief these are the weapon names obtained through a call to GetClientWeapon()
-decl const String:WEAPON_NAMES[][64] =
+new const String:WEAPON_NAMES[][64] =
 {
 	"weapon_autoshotgun",
 	"weapon_grenade_launcher",
@@ -118,7 +131,7 @@ decl const String:WEAPON_NAMES[][64] =
 
 //! \brief These are the sniper weapons that can instantly kill a common infected in normal difficulty
 new const NUM_INSTAKILL_WEAPONS = 4;
-decl const String:INSTAKILL_WEAPONS[][64] =
+new const String:INSTAKILL_WEAPONS[][64] =
 {
 	"weapon_sniper_awp",
 	"weapon_sniper_military",
@@ -126,89 +139,533 @@ decl const String:INSTAKILL_WEAPONS[][64] =
 	"weapon_hunting_rifle"
 };
 
-public Plugin:myinfo = {
-		   name = "stats",
-		 author = "sauce & guyguy",
-	description = "Stats for survival kills",
-		version = "0.0.1"
+// This array of game modes is a list of gamemodes that the plugin is compatible with.
+// We will add to this as various gamemode support is added
+new const NUM_GAMEMODES = 1;
+new const String:GAME_MODES[][64] = {
+	"survival"
 };
 
+/* [4.000]***************GLOBAL VARIABLES*************** */
 
+// global variables that track survivor data
+new bool:survivor[MAXPLAYERS];    // active survivors
+new survivorKills[MAXPLAYERS][8]; // stores the kills for each survivor for each SI type
+new survivorDmg[MAXPLAYERS][8];   // stores the dmg for each survivor for each SI type
+new survivorHeadShots[MAXPLAYERS]; // headshot counter
+new survivorFFDmg[MAXPLAYERS];     // friendly fire counter
+
+// global variables that track SI data
+new SIHealth[MAXPLAYERS];         // tracks SI + Tank health
+new bool:SIClients[MAXPLAYERS];   // current clients that are SI
+new survivorDmgToTank[MAXPLAYERS][MAXPLAYERS]; // tracks individual dmg to tank by survivor for multiple tank support
+
+// global variables that track CI data
+new CIHealth[MAXENTITIES];        // Tracks health of every common infected. This is inefficient memory usage since not all entities (array elements) are common infected.
+
+// global variables that deal with current game state
+new roundEnded = false;
+new collectStats = false;
+
+/* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
 	
 	//events to hook into
-	HookEvent("player_hurt", Event_PlayerHurt);
+	//HookEvent("player_hurt", Event_PlayerHurt);
 	HookEvent("infected_hurt", Event_InfectedHurt);
 	HookEvent("infected_death", Event_InfectedDeath);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
 	HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
 	HookEvent("player_disconnect", Event_PlayerDisconnect);
-	//console commands
+	HookEvent("player_bot_replace", Event_PlayerBotReplace);
+	HookEvent("bot_player_replace", Event_BotPlayerReplace);
+	
+	// Admin commands - these are not usable by non admin users
+	RegAdminCmd("sm_resetstats", Command_ResetStats,ADMFLAG_SLAY);
+
+	// Debug commands for developers
+#if DEBUG
+	RegAdminCmd("sm_printclients", Command_PrintClients, ADMFLAG_SLAY); // Prints all clients w/ client index and name
+	RegAdminCmd("sm_printbyname", Command_PrintClientByName, ADMFLAG_SLAY); // Print a client by name
+	RegAdminCmd("sm_printclientbyindex", Command_PrintClientByIndex, ADMFLAG_SLAY); // Print a client by client index
+	RegAdminCmd("sm_printsurvivor", Command_PrintSurvivor, ADMFLAG_SLAY);
+#endif
+
+	// Console/User commands - these are usable by all users
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
-	RegConsoleCmd("sm_resetstats", ResetStats);
+
 }
 
-/* ********* COMMAND FUNCTIONS ********** */
+/* [6.000]***************ADMIN COMMAND FUNCTIONS*************** */
+public Action:Command_PrintClients(client,args) {
+	for (new i = 0; i < MaxClients; i++) {
+		if(IsClientAlive(i)) {
+			PrintToChatAll("[%d] %N",i,i);
+		}
+	}
+}
 
+public Action:Command_PrintClientByName(client, args) {
+	new String:arg1[33];
+	new String:name[33];
+	new find = 0;
+	new found = false;
+	GetCmdArg(1, arg1, sizeof(arg1));
+	
+	for (new i = 0; i < MaxClients; i++) {
+		if(IsClientAlive(i)) {
+			GetClientName(i, name, sizeof(name));
+			if (StrContains(name, arg1,false)) {
+				find = i;
+				found = true;
+			}
+		}
+	}
+	
+	if (found) {
+		PrintToChatAll("%N's client = %d",find,find);
+	}
+	else {
+		PrintToChatAll("%s not found",arg1);
+	}
+}
+
+public Action:Command_PrintClientByIndex(client, args) {
+	new String:arg1[5];
+	GetCmdArg(1, arg1, sizeof(arg1));
+	new clientIndex = StringToInt(arg1);
+	if (IsClientAlive(clientIndex)) {
+		PrintToChatAll("client[%d] = %N",clientIndex,clientIndex);
+	}
+}
+
+public Action:Command_PrintSurvivor(client, args) {
+	for (new i = 0; i < MaxClients; i++) {
+		if(IsClientAlive(i) && survivor[i]) {
+			PrintToChatAll("[%d] %N",i,i);
+		}
+	}
+}
+
+//--------------------------------------------------
+// ResetStats
+//!
+//! \brief Use this function to reset the kill and damage arrays to zero
+//--------------------------------------------------
+public Action:Command_ResetStats(client, args) {
+	for (new i = 0; i < MaxClients; i++) {
+		for (new j = 0; j < 8; j++) {
+			survivorKills[i][j] = 0; // zero out all survivor kills of every type
+			survivorDmg[i][j] = 0; // zero out all survivor damage of every type
+			survivorDmgToTank[i][j] = 0; // zero out all survivor tank damage for all tanks
+		}
+		survivorHeadShots[i] = 0; // zero out headshot count
+		survivorFFDmg[i] = 0;     // zero out friendly fire damage
+		survivor[i] = false;      // zero out all tracked survivors
+		SIClients[i] = false;     // zero out all tracked SI
+		SIHealth[i]  = 0;         // zero out all tracked SI health
+	}
+	ResetCIHealth();
+	if (IsClientHuman(client)) {
+		PrintToChat(client,"\x01Stats have been \x04RESET");
+	}
+}
+
+/* [7.000]***************CONSOLE COMMAND FUNCTIONS*************** */
 public Action:Command_Stats(client, args) {
 
 	new String:arg1[33], String:arg2[33];
 	new clientToPrint;
 	
-	if (args == 1) {
-		
-		GetCmdArg(1, arg1, sizeof(arg1));
-		if (StrEqual(arg1,"all")) {
-			PrintStats(client, 0,false); // print all summarized stats
-		}
-		else if (StrEqual(arg1, "mvp")) {
-			PrintStats(client, 10000, false); // print mvp stats summarized
-		}
-		else if (StrEqual(arg1, "detail", false)){
-			PrintStats(client, client, true); // print personal stats with detail
-		}
-		else if (StrEqual(arg1, "round", false)) {
-			PrintStats(client, 20000, false);
-		}
-		else { // prints a specific player's stats summarized
-			// check to see if name matches to a client
-			clientToPrint = FindSurvivorClient(arg1);
-			if(clientToPrint != -1) {
-				PrintStats(client, clientToPrint, false);
-			}
-			else {
-				PrintToChat(client,"Player: \x04%s not found.", arg1);
-			}
-		}
-	}
-	else if(args == 2) {
-		GetCmdArg(1, arg1, sizeof(arg1));
-		GetCmdArg(2, arg2, sizeof(arg2));
-		if (StrEqual(arg2, "detail")) {
+	if (IsClientHuman(client)) { // Process this if the client is a human
+		if (args == 1) {
+			
+			GetCmdArg(1, arg1, sizeof(arg1));
 			if (StrEqual(arg1,"all")) {
-				PrintStats(client, 0,true); // print all stats with detail
+				PrintStats(client, 0,false); // print all summarized stats
 			}
 			else if (StrEqual(arg1, "mvp")) {
-				PrintStats(client, 10000, true); // print mvp stats with detail
+				PrintStats(client, 10000, false); // print mvp stats summarized
 			}
-			else { // print a specific player's stats with detail
-				clientToPrint = FindSurvivorClient(arg1);
+			else if (StrEqual(arg1, "detail", false)){
+				PrintStats(client, client, true); // print personal stats with detail
+			}
+			else if (StrEqual(arg1, "round", false)) {
+				PrintStats(client, 20000, false); // print round stats w/ no detail
+			}
+			else if (StrEqual(arg1, "weapon", false)) {
+				PrintStats(client, 30000, false); // prints
+			}
+			else { // prints a specific player's stats summarized
+				// check to see if name matches to a client
+				clientToPrint = GetSurvivorByName(arg1);
 				if(clientToPrint != -1) {
-					PrintStats(client, clientToPrint, true);
+					PrintStats(client, clientToPrint, false);
 				}
 				else {
-					PrintToChat(client,"%s not found", arg1);
+					PrintToChat(client,"Player: \x04%s not found.", arg1);
 				}
 			}
 		}
-	}
-	else if (args == 0) {
-		PrintStats(client,client,false); // print personal stats summarized
+		else if(args == 2) {
+			GetCmdArg(1, arg1, sizeof(arg1));
+			GetCmdArg(2, arg2, sizeof(arg2));
+			if (StrEqual(arg2, "detail")) {
+				if (StrEqual(arg1,"all")) {
+					PrintStats(client, 0,true); // print all stats with detail
+				}
+				else if (StrEqual(arg1, "mvp")) {
+					PrintStats(client, 10000, true); // print mvp stats with detail
+				}
+				else if (StrEqual(arg1, "round")) {
+					PrintStats(client, 20000, true); // print detailed round stats
+				}
+				else if (StrEqual(arg1, "weapon")) {
+					PrintStats(client, 30000, true); // print detailed weapon stats
+				}
+				else { // print a specific player's stats with detail
+					clientToPrint = GetSurvivorByName(arg1);
+					if(clientToPrint != -1) {
+						PrintStats(client, clientToPrint, true);
+					}
+					else {
+						PrintToChat(client,"%s not found", arg1);
+					}
+				}
+			}
+		}
+		else if (args == 0) {
+			PrintStats(client,client,false); // print personal stats summarized
+		}
 	}
 }
 
 
+
+/* [8.000]***************EVENT CALLBACK FUNCTIONS*************** */
+
+//--------------------------------------------------
+// Event_InfectedHurt
+//!
+//! \brief     This calculates the damage done to common infected.
+//! \details   Part of the complications in the calculation is due to the fact that real damage is not shown. Example: A weapon might do 90 damage but the zombie has only 10 health remaining. The actual damage should be 10, but the recorded amount is 90. To compensate for this, the common health are tracked in an array and the real damage is updated accordingly.
+//--------------------------------------------------
+
+// Infected Events
+public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
+	//other info
+	new hitgroup = GetEventInt(event, "hitgroup");
+	new damage   = GetEventInt(event, "dmg_health");
+
+	//victim info
+	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
+	new victimRemainingHealth = GetEventInt(event, "health");
+	new String:victimName[40];
+	GetClientModel(victim, victimName, sizeof(victimName));
+	new victimTeam = GetClientTeam(victim);
+	
+	//attacker info
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	
+	/*
+	Conditions for collection
+			1) Don't collect damage by SI
+			2) Don't collect damage by Console/World
+			3) Collect damage from bot survivors and player survivors
+	*/
+	
+	if (IsClientSurvivor(attacker) && collectStats) { // check if the attacker is Console/World if not then move forward
+
+#if DEBUG
+		PrintToChatAll("a = %d, dmg = %d, vic = %d, hg = %d",attacker, damage,victim, hitgroup);
+#endif
+		if (!survivor[attacker]) {
+			survivor[attacker] = true;
+		}
+		
+		//record survivor attack
+		if ((hitgroup == 1) && (victimTeam != TEAM_SURVIVOR)) {
+			survivorHeadShots[attacker]++;
+		}
+		
+		if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
+			survivorFFDmg[attacker] += damage;
+		}
+		
+		if((damage > 0) && (victimTeam == TEAM_INFECTED)) { //record damage
+			if (StrContains(victimName, "Hunter", false) != -1) {
+				if (victimRemainingHealth == 0) { //kill shot
+					survivorDmg[attacker][HUNTER] += SIHealth[victim];
+					survivorKills[attacker][HUNTER]++;
+				}
+				else {
+					survivorDmg[attacker][HUNTER] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Jockey", false) != -1) {
+				if (victimRemainingHealth == 0) {
+					survivorDmg[attacker][JOCKEY] += SIHealth[victim];
+					survivorKills[attacker][JOCKEY]++;
+				}
+				else {
+					survivorDmg[attacker][JOCKEY] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Charger", false) != -1) {
+				if (victimRemainingHealth == 0) { //kill shot
+					survivorDmg[attacker][CHARGER] += SIHealth[victim];
+					survivorKills[attacker][CHARGER]++;
+				}
+				else {
+					survivorDmg[attacker][CHARGER] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Spitter", false) != -1) {
+				if (victimRemainingHealth == 0) { //kill shot
+					survivorDmg[attacker][SPITTER] += SIHealth[victim];
+					survivorKills[attacker][SPITTER]++;
+				}
+				else {
+					survivorDmg[attacker][SPITTER] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Boomer", false) != -1) {
+				if (victimRemainingHealth == 0) { //kill shot
+					survivorDmg[attacker][BOOMER] += SIHealth[victim];
+					survivorKills[attacker][BOOMER]++;
+				}
+				else {
+					survivorDmg[attacker][BOOMER] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Smoker", false) != -1) {
+				if (victimRemainingHealth == 0) { //kill shot
+					survivorDmg[attacker][SMOKER] += SIHealth[victim];
+					survivorKills[attacker][SMOKER]++;
+				}
+				else {
+					survivorDmg[attacker][SMOKER] += damage;
+					SIHealth[victim] -= damage;
+				}
+			}
+			else if (StrContains(victimName, "Hulk", false) != -1) {
+				//deal with multiple tanks here
+				if (SIClients[victim]) { //if this tank is alive record
+					// if ((SIHealth[victim] <= 0) || (victimRemainingHealth > SIHealth[victim])) {
+					
+					if (damage >= SIHealth[victim]) {
+#if DEBUG
+						PrintToChatAll("%N %d/%d",victim, victimRemainingHealth, (GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff));
+#endif	
+						survivorDmgToTank[attacker][victim] += SIHealth[victim];
+						survivorDmg[attacker][TANK] += SIHealth[victim];
+						SIClients[victim] = false;
+						SIHealth[victim] = 0;
+						PrintTankStats(victim);
+						for (new x = 0; x < MAXPLAYERS; x++) {
+							survivorDmgToTank[x][victim] = 0;
+						}
+						survivorKills[attacker][TANK]++;
+					}
+					else if (SIClients[victim]) {
+#if DEBUG
+						PrintToChatAll("%N %d/%d",victim, victimRemainingHealth, (GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff));
+#endif
+						SIHealth[victim] -= damage;
+						survivorDmg[attacker][TANK] += damage;
+						survivorDmgToTank[attacker][victim] += damage; //Do we count the damage that exceeds the tank's health?
+					}
+				}
+			}
+		}
+		
+		//reset SI Tracking variables on kill
+		if(victimRemainingHealth == 0) {
+			SIClients[victim] = false;
+			SIHealth[victim] = 0;
+		}
+
+	}
+	
+}
+
+
+public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
+	//--------------------------------------------------
+	// Local Variables:
+	//
+	// attacker    - client index of the attacker
+	// victim      - entity index of the victim common infected
+	// damage      - the full damage amount the weapon did, may exceed the common's health
+	// hitgroup    - 1 for headshot, etc
+	// realdamage  - the calculated damage so that the damage does not exceed teh common's health
+	// model_id    - The model id, which identifies if the zombies is a special type of zombie such as construction worker
+	// max_hp      - The maximum hp of the zombie. This depends on the type of zombie. Special zombies have different healths other than the default health of 50 for survival mode.
+	//--------------------------------------------------
+	//attacker info
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	new victim = GetEventInt(event, "entityid");
+
+	// retrieve the damage and hitgroup
+	new damage = GetEventInt(event, "amount");
+	new hitgroup = GetEventInt(event, "hitgroup");
+	new realdamage;
+	new model_id;
+	decl String:weapon[64];
+	
+	if (IsClientHuman(attacker) && collectStats) {
+		// get the attackers weapon
+		GetClientWeapon(attacker, weapon, sizeof(weapon));
+
+		// get the model index of the damaged zombie
+		model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
+
+		new maxhp = DEFAULT_HP;
+
+		// check to see if the victim is a special zombie
+		for (new i = 0; i < NUM_SPECIAL_ZOMBIES; i++) {
+
+			// if it is a special zombie, change the hp accordingly
+			if (model_id == SPECIAL_ZOMBIE_ID[i]) {
+				maxhp = SPECIAL_ZOMBIE_HP[i];
+			}
+		}
+
+		new bool:instakill_weapon = false;
+
+		// run through all the instakill weapons and check
+		for (new i = 0; i < NUM_INSTAKILL_WEAPONS; i++) {
+			if (StrEqual(weapon, INSTAKILL_WEAPONS[i]) == true) {
+				instakill_weapon = true;
+			}
+		}
+
+		// if the damage is 1 (due to fire), modify the damage to a killing blow.
+		// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283).
+		// As well, check if it is an insta-kill weapon, which will destroy the zombie in one shot regardless of the hitgroup.
+		if ((damage == 1 || GetEventInt(event, "hitgroup") == 1 || instakill_weapon == true) && model_id != 283) {
+			damage = maxhp;
+		}
+
+		// Now check the zombie's remaining health. If the health value in the zombie health array is zero, we assume the zombie was at full health before the damage was dealt.
+		if (CIHealth[victim] <= 0) {
+			CIHealth[victim] = maxhp;
+		}
+
+		// if the shot is beyond the CIHealth, modify the damage so that it is simply equal to the hp (killing blow)
+		if (damage > CIHealth[victim]) {
+			realdamage = CIHealth[victim];
+		}
+		else {
+			realdamage = damage; // otherwise the damage is unchanged
+		}
+
+		// decrease the health of the zombie by the realdamage.
+		CIHealth[victim] -= realdamage;
+
+		//Only process if the player is a legal attacker (i.e., a player)
+
+		new attackerTeam = GetClientTeam(attacker);
+		if(attackerTeam == TEAM_SURVIVOR) {
+			survivor[attacker] = true;
+
+			survivorDmg[attacker][COMMON] += realdamage;
+
+			// check for a headshot
+			if (hitgroup == 1) {
+				survivorHeadShots[attacker]++;
+			}
+		}
+
+	}
+}
+
+public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
+	//attacker info
+	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	
+
+	//Only process if the player is a legal attacker (i.e., a player)
+	if (IsClientHuman(attacker) && collectStats)
+	{
+		new attackerTeam = GetClientTeam(attacker);
+		if(attackerTeam == TEAM_SURVIVOR) 
+		{
+			if (!survivor[attacker]) {
+				survivor[attacker] = true;
+			}
+			survivorKills[attacker][COMMON]++;
+		}
+	}
+}
+
+// Round Events
+
+public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
+	Command_ResetStats(0,0);
+	roundEnded = false;
+	collectStats = true;
+#if DEBUG
+	PrintToChatAll("\x01Event_RoundStart \x04FIRED[ResetStats(0,0); roundEnded = false; collectStats = true;]");
+#endif
+}
+
+public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
+	if (!roundEnded) {
+		PrintStats(0, 10000,false);
+		roundEnded = true;
+	}
+	collectStats = false;
+}
+
+// Player state events
+
+public Event_PlayerDisconnect(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event,"userid"));
+	if(IsClientHuman(client) && !dontBroadcast) {
+		survivor[client] = false;
+	}
+}
+
+public Event_PlayerFirstSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
+	new id = GetClientOfUserId(GetEventInt(event,"userid"));
+	if (IsClientInfected(id)) { // track health for SI
+		SIClients[id] = true;
+		SIHealth[id] = GetEntProp(id, Prop_Send, "m_iMaxHealth") & 0xffff;
+	}
+	else if (IsClientSurvivor(id)) { // actively collecting stats
+		if (GetClientTeam(id) == TEAM_SURVIVOR) {
+			survivor[id] = true;
+		}
+	}
+}
+
+public Event_PlayerBotReplace(Handle:event, const String:name[], bool:dontBroadcast) {
+	new player = GetClientOfUserId(GetEventInt(event, "player"));
+	new bot    = GetClientOfUserId(GetEventInt(event, "bot"));
+	if (IsClientHuman(player) && IsClientBot(bot) && (GetClientTeam(player) == TEAM_SURVIVOR)) {
+		survivor[player] = true;
+		survivor[bot]    = false;
+	}
+}
+
+public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadcast) {
+	new player = GetEventInt(event, "player");
+	new bot    = GetEventInt(event, "bot");
+	if (IsClientHuman(player) && IsClientBot(bot) && (GetClientTeam(player) == TEAM_SURVIVOR)) {
+		survivor[player] = false;
+		survivor[bot]    = true;
+	}
+}
+
+
+/* [9.000]***************HELPER FUNCTIONS*************** */
 PrintStats(printToClient, option, bool:detail) {
 	// client2 values
 	// 100 = print mvp
@@ -236,7 +693,7 @@ PrintStats(printToClient, option, bool:detail) {
 		0[SI]: XXXX Kills [CI]: XXXXX Kills [T]: XXX Kills <-- skip if detail flag is true
 		1SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
 		*/
-			for (new i = 1; i < MAXPLAYERS + 1; i++) {
+			for (new i = 1; i < MAXPLAYERS; i++) {
 				// process name
 				new String:name[20];
 				
@@ -494,14 +951,14 @@ PrintStats(printToClient, option, bool:detail) {
 					PercentDamage[i] = 0.0;
 				}
 				else {
-					PercentDamage[i] = (float(survivorDmg[option][i])/float(totalDamage[i]))*100.00;
+					PercentDamage[i] = (float(survivorDmg[option][i])/float(totalDamage[i]))* 100.00;
 				}
 				
 				if (survivorKills[option][i] == 0) {
 					PercentKills[i] = 0.0;
 				}
 				else {
-					PercentKills[i] = (float(survivorKills[option][i])/float(totalDamage[i]))*100.00;
+					PercentKills[i] = (float(survivorKills[option][i])/float(totalKills[i]))* 100.00;
 				}
 				
 			}			
@@ -548,333 +1005,166 @@ PrintStats(printToClient, option, bool:detail) {
 }
 
 
-//--------------------------------------------------
-// ResetStats
-//!
-//! \brief Use this function to reset the kill and damage arrays to zero
-//--------------------------------------------------
-public Action:ResetStats(client, args) {
-	for (new i = 0; i < MAXPLAYERS + 1; i++) {
-		for (new j = 0; j < 8; j++) {
-			survivorKills[i][j] = 0;
-			survivorDmg[i][j] = 0;
-			survivorDmgToTank[i][j] = 0;
-		}
-		survivorHeadShots[i] = 0;
-		survivorFFDmg[i] = 0;
-		survivor[i] = false;
-		SIClients[i] = false;
-		SIHealth[i]  = 0;
-	}
-	ResetCIHealth();
-	if (client != 0) {
-		PrintToChat(client,"\x01Stats have been \x04RESET");
-	}
-}
-
-
-
-/* ********* EVENT FUNCTIONS ********** */
-
-public Event_PlayerDisconnect(Handle:event, const String:name[], bool:dontBroadcast) {
-	new client = GetClientOfUserId(GetEventInt(event,"userid"));
-	if( client && !IsFakeClient(client) && !dontBroadcast ) {
-		ResetStatsByClient(client);
-		if (DEBUG == 1) {
-			PrintToChatAll("\x01Event_PlayerDisconnect FIRED for \x03[%d] %N \x01(stats \x04RESET)",client, client);
+PrintTankStats(victim) {
+	new Float:percent = 0.0;
+	new maxHealth = GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff;
+	new players = 0;
+	new damage[MaxClients];
+	new tracker[MaxClients][3];
+	for(new i = 1; i < MaxClients; i++) {
+		if (IsClientSurvivor(i) && survivor[i]) {
+			/*
+			 1111111111111111111111111111111111111111111111111
+			1name56789012345678901234567890 XXXX Damage (XXX%)
+			2name56789012345678901234567890 XXXX Damage (XXX%)
+			3name56789012345678901234567890 XXXX Damage (XXX%)
+			4name56789012345678901234567890 XXXX Damage (XXX%)
+			*/
+			damage[players]     = survivorDmgToTank[i][victim];
+			tracker[players][0] = i;
+			tracker[players][1] = survivorDmgToTank[i][victim];
+			tracker[players][2] = 0;
+			players++;
+			//PrintToChatAll("survivorDmgToTank[i][victim] = %d, i = %d",survivorDmgToTank[i][victim], i);
 		}
 	}
 	
-	
-}
-
-public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
-	ResetStats(0,0);
-	roundEnded = false;
-	collectStats = true;
-	if (DEBUG == 1) {
-		PrintToChatAll("\x01Event_RoundStart \x04FIRED");
-	}
-}
-
-public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	if (!roundEnded) {
-		PrintStats(0, 10000,false);
-		roundEnded = true;
-	}
-	collectStats = false;
-}
-
-public Event_PlayerFirstSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
-	new id = GetClientOfUserId(GetEventInt(event,"userid"));
-	if (id != 0) { // track health for SI
-		if (GetClientTeam(id) == TEAM_INFECTED) {
-			SIClients[id] = true;
-			SIHealth[id] = GetEntProp(id, Prop_Send, "m_iMaxHealth") & 0xffff;
-		}
-	}
-	else if (id > 0) { // actively collecting stats
-		if (GetClientTeam(id) == TEAM_SURVIVOR) {
-			survivor[id] = true;
-		}
-	}
-}
-
-public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
-	//other info
-	new hitgroup = GetEventInt(event, "hitgroup");
-	new damage   = GetEventInt(event, "dmg_health");
-
-	//victim info
-	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
-	new victimRemainingHealth = GetEventInt(event, "health");
-	new String:victimName[40];
-	GetClientModel(victim, victimName, sizeof(victimName));
-	new victimTeam = GetClientTeam(victim);
-	
-	//attacker info
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	// sorting
+	SortIntegers(damage, MaxClients, Sort_Descending);
 	
 	
-	/*
-	Conditions for collection
-			1) Don't collect damage by SI
-			2) Don't collect damage by Console/World
-			3) Collect damage from bot survivors and player survivors
-	*/
+	// sort damage and clientID
+	new orderedInfo[players][2];
 	
-	if ((attacker != 0) && collectStats) { // check if the attacker is Console/World if not then move forward
-		new attackerTeam = GetClientTeam(attacker);
-		if(attackerTeam == TEAM_SURVIVOR) { //survivor damage including bots
-			// DEBUG
-			if (DEBUG == 1) {
-				PrintToChatAll("a = %d, dmg = %d, vic = %d, hg = %d",attacker, damage,victim, hitgroup);
-			}
-
-			survivor[attacker] = true;
-			
-			//record survivor attack
-			if ((hitgroup == 1) && (victimTeam != TEAM_SURVIVOR)) {
-				survivorHeadShots[attacker]++;
-				//gets rid of number before SI name
-				if (victimName[0] == '(') {
-					victimName[0] = ' ';
-					victimName[1] = ' ';
-					victimName[2] = ' ';
-				}
-			}
-			
-			if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
-				survivorFFDmg[attacker] += damage;
-			}
-			if((damage > 0) && (victimTeam == TEAM_INFECTED)) { //record damage
-				if (StrContains(victimName, "Hunter", false) != -1) {
-					if (victimRemainingHealth == 0) { //kill shot
-						survivorDmg[attacker][HUNTER] += SIHealth[victim];
-						survivorKills[attacker][HUNTER]++;
-					}
-					else {
-						survivorDmg[attacker][HUNTER] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Jockey", false) != -1) {
-					if (victimRemainingHealth == 0) {
-						survivorDmg[attacker][JOCKEY] += SIHealth[victim];
-						survivorKills[attacker][JOCKEY]++;
-					}
-					else {
-						survivorDmg[attacker][JOCKEY] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Charger", false) != -1) {
-					if (victimRemainingHealth == 0) { //kill shot
-						survivorDmg[attacker][CHARGER] += SIHealth[victim];
-						survivorKills[attacker][CHARGER]++;
-					}
-					else {
-						survivorDmg[attacker][CHARGER] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Spitter", false) != -1) {
-					if (victimRemainingHealth == 0) { //kill shot
-						survivorDmg[attacker][SPITTER] += SIHealth[victim];
-						survivorKills[attacker][SPITTER]++;
-					}
-					else {
-						survivorDmg[attacker][SPITTER] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Boomer", false) != -1) {
-					if (victimRemainingHealth == 0) { //kill shot
-						survivorDmg[attacker][BOOMER] += SIHealth[victim];
-						survivorKills[attacker][BOOMER]++;
-					}
-					else {
-						survivorDmg[attacker][BOOMER] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Smoker", false) != -1) {
-					if (victimRemainingHealth == 0) { //kill shot
-						survivorDmg[attacker][SMOKER] += SIHealth[victim];
-						survivorKills[attacker][SMOKER]++;
-					}
-					else {
-						survivorDmg[attacker][SMOKER] += damage;
-						SIHealth[victim] -= damage;
-					}
-                }
-				else if (StrContains(victimName, "Hulk", false) != -1) {
-					//deal with multiple tanks here
-					if (SIClients[victim]) { //if this tank is alive record
-						if ((SIHealth[victim] <= 0) || (victimRemainingHealth > SIHealth[victim])) {
-							survivorDmgToTank[attacker][victim] += SIHealth[victim];
-							survivorDmg[attacker][TANK] += SIHealth[victim];
-							SIClients[victim] = false;
-							SIHealth[victim] = 0;
-							PrintTankStats(victim);
-							survivorKills[attacker][TANK]++;
-						}
-						else {
-							SIHealth[victim] -= damage;
-							survivorDmg[attacker][TANK] += damage;
-							survivorDmgToTank[attacker][victim] += damage; //Do we count the damage that exceeds the tank's health?
-						}
-					}
-                }
-				
-			}
-			
-			//reset SI Tracking variables on kill
-			if(victimRemainingHealth == 0) {
-				SIClients[victim] = false;
-				SIHealth[victim] = 0;
+	for (new l = 0; l < players; l++) {
+		for (new m = 0; m < players; m++) {
+			if ((damage[l] == tracker[m][1]) && (tracker[m][2] == 0)) {
+				orderedInfo[l][0] = tracker[m][0]; // clientID
+				orderedInfo[l][1] = damage[l];     // damage
+				tracker[m][2] = 1;
+				PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
 			}
 		}
 	}
 	
-}
-
-//--------------------------------------------------
-// Event_InfectedHurt
-//!
-//! \brief     This calculates the damage done to common infected.
-//! \details   Part of the complications in the calculation is due to the fact that real damage is not shown. Example: A weapon might do 90 damage but the zombie has only 10 health remaining. The actual damage should be 10, but the recorded amount is 90. To compensate for this, the common health are tracked in an array and the real damage is updated accordingly.
-//--------------------------------------------------
-
-public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
-	//--------------------------------------------------
-	// Local Variables:
-	//
-	// attacker    - client index of the attacker
-	// victim      - entity index of the victim common infected
-	// damage      - the full damage amount the weapon did, may exceed the common's health
-	// hitgroup    - 1 for headshot, etc
-	// realdamage  - the calculated damage so that the damage does not exceed teh common's health
-	// model_id    - The model id, which identifies if the zombies is a special type of zombie such as construction worker
-	// max_hp      - The maximum hp of the zombie. This depends on the type of zombie. Special zombies have different healths other than the default health of 50 for survival mode.
-	//--------------------------------------------------
-	//attacker info
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	new victim = GetEventInt(event, "entityid");
-
-	// retrieve the damage and hitgroup
-	new damage = GetEventInt(event, "amount");
-	new hitgroup = GetEventInt(event, "hitgroup");
-	new realdamage;
-	new model_id;
-	decl String:weapon[64];
-
-	// get the attackers weapon
-	GetClientWeapon(attacker, weapon, sizeof(weapon));
-
-	// get the model index of the damaged zombie
-	model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
-
-	new maxhp = DEFAULT_HP;
-
-	// check to see if the victim is a special zombie
-	for (new i = 0; i < NUM_SPECIAL_ZOMBIES; i++) {
-
-		// if it is a special zombie, change the hp accordingly
-		if (model_id == SPECIAL_ZOMBIE_ID[i]) {
-			maxhp = SPECIAL_ZOMBIE_HP[i];
+	// how many winners
+	new winners = 0;
+	for (new k = 0; k < players - 1; k++) {
+		if (damage[k] == damage[k+1]) {
+			winners++;
 		}
 	}
-
-	bool:instakill_weapon = false;
-
-	// run through all the instakill weapons and check
-	for (new i = 0; i < NUM_INSTAKILL_WEAPONS; i++) {
-		if (StrEqual(weapon, INSTAKILL_WEAPONS[I]) == true) {
-			instakill_weapon = true;
-		}
-	}
-
-	// if the damage is 1 (due to fire), modify the damage to a killing blow.
-	// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283).
-	// As well, check if it is an insta-kill weapon, which will destroy the zombie in one shot regardless of the hitgroup.
-	if ((damage == 1 || GetEventInt(event, "hitgroup") == 1 || instakill_weapon == true) && model_id != 283) {
-		damage = maxhp;
-	}
-
-	// Now check the zombie's remaining health. If the health value in the zombie health array is zero, we assume the zombie was at full health before the damage was dealt.
-	if (CIHealth[victim] <= 0) {
-		CIHealth[victim] = maxhp;
-	}
-
-	// if the shot is beyond the CIHealth, modify the damage so that it is simply equal to the hp (killing blow)
-	if (damage > CIHealth[victim]) {
-		realdamage = CIHealth[victim];
-	}
-	else {
-		realdamage = damage; // otherwise the damage is unchanged
-	}
-
-	// decrease the health of the zombie by the realdamage.
-	CIHealth[victim] -= realdamage;
-
-	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker < MaxClients) && (collectStats)) {
-		new attackerTeam = GetClientTeam(attacker);
-		if(attackerTeam == TEAM_SURVIVOR) {
-			survivor[attacker] = true;
-
-			survivorDmg[attacker][COMMON] += realdamage;
-
-			// check for a headshot
-			if (hitgroup == 1) {
-				survivorHeadShots[attacker]++;
-			}
-		}
-	}
-}
-
-public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
-	//attacker info
-	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	
-
-	//Only process if the player is a legal attacker (i.e., a player)
-	if (attacker && (attacker < MaxClients) && collectStats)
-	{
-		new attackerTeam = GetClientTeam(attacker);
-		if(attackerTeam == TEAM_SURVIVOR) 
-		{
-			if (!survivor[attacker]) {
-				survivor[attacker] = true;
+	// display data
+	
+	for (new j = 0; j < players; j++) {
+		percent = (float(orderedInfo[j][1]) / float(maxHealth))* 100.00;
+		if (j == 0) {
+			PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+		}
+		else {
+			if (j < winners) {
+				PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
 			}
-			survivorKills[attacker][COMMON]++;
+			else if ( j == (players-1)) {
+				PrintToChatAll("\x03[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+			}
+			else {
+				PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+			}
 		}
 	}
+	
+	
 }
 
+// This function determines if a given client index corresponds to a human player
+IsClientHuman(client) {
+	if (client == 0) {
+		return false;
+	}
+	else if (client > MaxClients) {
+		return false;
+	}
+	else if (client && IsClientInGame(client) && IsClientConnected(client)) {
+		if(!IsFakeClient(client)) {
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
 
-/* ********* HELPER FUNCTIONS ********** */
+// This function determines if a given client index corresponds to a bot
+IsClientBot(client) {
+	if (client == 0) {
+		return false;
+	}
+	else if (client > MaxClients) {
+		return false;
+	}
+	else if (client && IsClientInGame(client) && IsClientConnected(client)) {
+		if (IsFakeClient(client)) {
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
+
+// This function determines if a given client index corresponds to a human player or bot
+IsClientAlive(client) {
+	if (client == 0) {
+		return false;
+	}
+	else if (client > MaxClients) {
+		return false;
+	}
+	else if (client && IsClientInGame(client) && IsClientConnected(client)) {
+		return true;
+	}
+	return false;
+}
+
+// This function determines if a given client index is the Console/World (client index = 0)
+IsClientWorld(client) {
+	if (client == 0)) {
+		return true;
+	}
+	return false;
+}
+
+IsClientSurvivor(client) {
+	if (client == 0) {
+		return false;
+	}
+	else if (client > MaxClients) {
+		return false;
+	}
+	else if (client && IsClientInGame(client) && IsClientConnected(client)) {
+		if (GetClientTeam(client) == TEAM_SURVIVOR) {
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
+
+IsClientInfected(client) {
+	if (client == 0) {
+		return false;
+	}
+	else if (client > MaxClients) {
+		return false;
+	}
+	else if (client && IsClientInGame(client) && IsClientConnected(client)) {
+		if (GetClientTeam(client) == TEAM_INFECTED) {
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
 
 //--------------------------------------------------
 // ResetCIHealth
@@ -886,6 +1176,24 @@ ResetCIHealth() {
 	for (new i = 0; i < MAXENTITIES; i++) {
 		CIHealth[i] = 0;
 	}
+}
+
+
+bool:ResetStatsByClient(client) {
+	if (IsClientHuman(client)) {
+		survivor[client]          = false;
+		survivorHeadShots[client] = 0;
+		survivorFFDmg[client]     = 0;
+		for (new i = 0; i < MaxClients; i++) {
+			if (i < 8) {
+				survivorKills[client][i] = 0;
+				survivorDmg[client][i] = 0;
+			}
+			survivorDmgToTank[client][i] = 0;
+		}
+		return true;
+	}
+	return false;
 }
 
 //--------------------------------------------------
@@ -922,55 +1230,11 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 	} // end outer for loop
 }
 
-PrintTankStats(victim) {
-	new Float:percent = 0.0;
-	new maxHealth = GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff;
-	new players = 0;
-	new damage[MaxClients];
-	for(new i = 0; i < MaxClients; i++) {
-		if (survivor[i]) {
-			/*
-			 1111111111111111111111111111111111111111111111111
-			1name56789012345678901234567890 XXXX Damage (XXX%)
-			2name56789012345678901234567890 XXXX Damage (XXX%)
-			3name56789012345678901234567890 XXXX Damage (XXX%)
-			4name56789012345678901234567890 XXXX Damage (XXX%)
-			*/
-			damage[players] = survivorDmgToTank[i][victim];
-			players++;
-		}
-	}
-	SortIntegers(damage, MaxClients, Sort_Descending);
-	
-	new bool:first = true;
-	for (new j = 0; j < players; j++) {
-		for (new k = 1; k < MaxClients; k++) {
-			if ((survivorDmgToTank[k][victim] == damage[j]) && survivor[k] && (GetClientTeam(k) == TEAM_SURVIVOR)) {
-				percent = (float(damage[j]) / float(maxHealth))* 100.00;
-				if (first) {
-					first = false;
-					PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
-				}
-				/*
-				else if (j == (players - 1)) { // last one
-					PrintToChatAll("\x01[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
-				}
-				else if (damage[j] == 0) {
-					PrintToChatAll("\x01[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
-				}*/
-				else {
-					PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", k, survivorDmgToTank[k][victim],percent);
-				}
-				survivorDmgToTank[k][victim] = 0; //reset
-			}			
-		}
-		
-	}
-}
 
-FindSurvivorClient(String:name[33]) {
+// This function returns the client index that corresponds to a given name (string)
+GetSurvivorByName(String:name[33]) {
 	for (new i = 1; i < MaxClients; i++) {
-		if ((IsClientInGame(i)) && (GetClientTeam(i) == TEAM_SURVIVOR)) {
+		if ((IsClientAlive(i)) && (GetClientTeam(i) == TEAM_SURVIVOR)) {
 			new String:clientName[33];
 			GetClientName(i, clientName, sizeof(clientName));
 			if (StrContains(clientName, name, false) == 0) {
@@ -979,21 +1243,4 @@ FindSurvivorClient(String:name[33]) {
 		}
 	}
 	return -1; //doesn't exist
-}
-
-bool:ResetStatsByClient(client) {
-	if ((client <= MaxClients) && (survivor[client])) {
-		survivor[client]          = false;
-		survivorHeadShots[client] = 0;
-		survivorFFDmg[client]     = 0;
-		for (new i = 0; i < MaxClients; i++) {
-			if (i < 8) {
-				survivorKills[client][i] = 0;
-				survivorDmg[client][i] = 0;
-			}
-			survivorDmgToTank[client][i] = 0;
-		}
-		return true;
-	}
-	return false;
 }
