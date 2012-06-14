@@ -15,6 +15,9 @@
 //==================================================
 new Handle:db = INVALID_HANDLE;
 new Handle:test_db_sqlite = INVALID_HANDLE;
+
+new Handle:umvp_enabled = INVALID_HANDLE; //!< Handle to the umvp_enabled cvar
+
 new hurtCounter = 0;
 
 // Constants for the different teams----------------
@@ -52,6 +55,69 @@ new String:CAMPAIGNS_2[][64] =
 	"Dead Center"
 };
 
+// Left 4 Dead 2 weapon names-----------------------
+new const NUM_WEAPONS = 47;
+//! \brief these are the weapon names obtained through a call to GetClientWeapon()
+new const String:WEAPON_NAMES[][64] =
+{
+	"weapon_autoshotgun",
+	"weapon_grenade_launcher",
+	"weapon_hunting_rifle",
+	"weapon_pistol",
+	"weapon_pistol_magnum",
+	"weapon_pumpshotgun",
+	"weapon_rifle",
+	"weapon_rifle_ak47",
+	"weapon_rifle_desert",
+	"weapon_rifle_m60",
+	"weapon_rifle_sg552",
+	"weapon_shotgun_chrome",
+	"weapon_shotgun_spas",
+	"weapon_smg",
+	"weapon_smg_mp5",
+	"weapon_smg_silenced",
+	"weapon_sniper_awp",
+	"weapon_sniper_military",
+	"weapon_sniper_scout",
+	"weapon_baseball_bat",
+	"weapon_cricket_bat",
+	"weapon_crowbar",
+	"weapon_electric_guitar",
+	"weapon_fireaxe",
+	"weapon_frying_pan",
+	"weapon_golfclub",
+	"weapon_katana",
+	"weapon_machete",
+	"weapon_tonfa",
+	"weapon_knife",
+	"weapon_chainsaw",
+	"weapon_adrenaline",
+	"weapon_defibrillator",
+	"weapon_first_aid_kit",
+	"weapon_pain_pills",
+	"weapon_fireworkcrate",
+	"weapon_gascan",
+	"weapon_oxygentank",
+	"weapon_propanetank",
+	"weapon_molotov",
+	"weapon_pipe_bomb",
+	"weapon_vomitjar",
+	"weapon_ammo_spawn",
+	"weapon_upgradepack_explosive",
+	"weapon_upgradepack_incendiary",
+	"weapon_gnome",
+	"weapon_cola_bottles"
+};
+
+//! \brief These are the sniper weapons that can instantly kill a common infected in normal difficulty
+new const NUM_INSTAKILL_WEAPONS = 4;
+new const String:INSTAKILL_WEAPONS[][64] =
+{
+	"weapon_sniper_awp",
+	"weapon_sniper_military",
+	"weapon_sniper_scout",
+	"weapon_hunting_rifle"
+};
 
 public Plugin:myinfo = 
 {
@@ -189,10 +255,16 @@ public OnPluginStart()
 	RegConsoleCmd("sm_umvp_help", Command_Help);
 	RegConsoleCmd("sm_umvp_connect_test_db", Command_ConnectTestDB);
 	RegConsoleCmd("sm_umvp_add_official_maps", Command_AddOfficialMaps);
+	RegConsoleCmd("sm_umvp_add_official_weapons", Command_AddOfficialWeapons);
 	RegConsoleCmd("sm_umvp_add_weapon", Command_AddWeapon);
 	RegConsoleCmd("sm_umvp_output_maps_table", Command_OutputMapsTable);
 	RegConsoleCmd("sm_umvp_output_weapons_table", Command_OutputWeaponTable);
 
+	// Console variables added by the plugin------------
+	// TODO: during testing, the main functionality is disabled by default. Enable this in the future?
+	umvp_enabled = CreateConVar("umvp_enabled", "0", "Determines whether the umvp plugin is enabled", 0, true, 0.0, true, 1.0); // min value 0, max 1
+
+	Command_ConnectTestDB(-1, 0);
 	PrepareConnection();
 }
 
@@ -202,6 +274,12 @@ public OnPluginEnd() {
 }
 
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
+	new enabled;
+	enabled = GetConVarInt(umvp_enabled);
+
+	if (enabled == 0)
+		return;
+
 	hurtCounter++;
 	new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 	new String:victimName[50]; 
@@ -381,9 +459,9 @@ new String:sql_test_commands[][1024] =
 	"DROP TABLE IF EXISTS player;",
 	"CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, url VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID));",
 	"DROP TABLE IF EXISTS weapon;",
-	"CREATE TABLE IF NOT EXISTS weapon(weaponID INTEGER, name VARCHAR(45), type INTEGER NULL, PRIMARY KEY (weaponID));",
+	"CREATE TABLE IF NOT EXISTS weapon(weaponID INTEGER, name VARCHAR(45), type INTEGER NULL, PRIMARY KEY (weaponID), UNIQUE (name));",
 	"DROP TABLE IF EXISTS maps;",
-	"CREATE TABLE IF NOT EXISTS maps(mapID INTEGER, mapName VARCHAR(45), campaignName VARCHAR(45) NULL, url VARCHAR(255) NULL, game INTEGER, PRIMARY KEY (mapID));",
+	"CREATE TABLE IF NOT EXISTS maps(mapID INTEGER, mapName VARCHAR(45), campaignName VARCHAR(45) NULL, url VARCHAR(255) NULL, game INTEGER, PRIMARY KEY (mapID), UNIQUE (mapName, campaignName));",
 	"DROP TABLE IF EXISTS record;",
 	"CREATE TABLE IF NOT EXISTS record(recordID INTEGER, duration INTEGER, mapID INTEGER, PRIMARY KEY (recordID));",
 	"DROP TABLE IF EXISTS gameClient;",
@@ -407,18 +485,16 @@ new String:sql_test_commands[][1024] =
 //--------------------------------------------------
 public Action:Command_Help(client, args)
 {
-	decl String:message[1024];
-
-	Format(message, sizeof(message), "Available Commands:\n");
-	StrCat(message, sizeof(message), "sm_umvp_help\n");
-	StrCat(message, sizeof(message), "sm_umvp_connect_test_db\n");
-	StrCat(message, sizeof(message), "sm_umvp_add_player\n");
-	StrCat(message, sizeof(message), "sm_umvp_add_official_maps\n");
-	StrCat(message, sizeof(message), "sm_umvp_add_weapon\n");
-	StrCat(message, sizeof(message), "sm_umvp_output_player_table\n");
-	StrCat(message, sizeof(message), "sm_umvp_output_maps_table\n");
-	StrCat(message, sizeof(message), "sm_umvp_output_weapons_table\n");
-
+	PrintToChat(client, "Available Commands:");
+	PrintToChat(client, "sm_umvp_help");
+	PrintToChat(client, "sm_umvp_connect_test_db");
+	PrintToChat(client, "sm_umvp_add_player");
+	PrintToChat(client, "sm_umvp_add_official_maps");
+	PrintToChat(client, "sm_umvp_add_official_weapons");
+	PrintToChat(client, "sm_umvp_add_weapon");
+	PrintToChat(client, "sm_umvp_output_player_table");
+	PrintToChat(client, "sm_umvp_output_maps_table");
+	PrintToChat(client, "sm_umvp_output_weapons_table");
 	return Plugin_Handled;
 }
 
@@ -452,7 +528,8 @@ public Action:Command_ConnectTestDB(client, args)
 		if (!(SQL_FastQuery(test_db_sqlite, sql_test_commands[i])))
 		{
 			SQL_GetError(test_db_sqlite, error, sizeof(error));
-			PrintToConsole(client, error);
+			if (client > 0)
+				PrintToConsole(client, error);
 		}
 		CloseHandle2(query);
 	}
@@ -482,7 +559,6 @@ public Action:Command_OutputMapsTable(client, args)
 	QueryMaps(client);
 	return Plugin_Handled;
 }
-
 
 //--------------------------------------------------
 // Command_OutputPlayerTable
@@ -531,9 +607,41 @@ public Action:Command_AddWeapon(client, args)
 	return Plugin_Handled;
 }
 
+//--------------------------------------------------
+// Command_AddOfficialWeapons
+//!
+//! \brief This command is used to add the official weapons into the weapons table
+//--------------------------------------------------
+public Action:Command_AddOfficialWeapons(client, args)
+{
+	AddOfficialWeapons(client);
+	return Plugin_Handled;
+}
+
 //==================================================
 // Helper Functions and Callbacks
 //==================================================
+
+//--------------------------------------------------
+// AddOfficialWeapons
+//!
+//! \brief Adds the official weapons into the weapons table
+//! \param[in] client The client index of the client to output results to. Use -1 to suppress output.
+//--------------------------------------------------
+AddOfficialWeapons(client)
+{
+	decl String:query[128];
+	for (new i = 0; i < NUM_WEAPONS; i++)
+	{
+		if (client > 0)
+		{
+			PrintToChat(client, "Inserting weapon %s...", WEAPON_NAMES[i]);
+		}
+
+		Format(query, sizeof(query), "INSERT INTO weapon (name) VALUES (\'%s\')", WEAPON_NAMES[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+	}
+}
 
 //--------------------------------------------------
 // AddWeapon
@@ -548,6 +656,7 @@ AddWeapon(client, String:weapon[])
 	decl String:query[128];
 	PrintToConsole(client, "Adding weapon %s...", weapon);
 	Format(query, sizeof(query), "INSERT INTO weapon (name) VALUES (\'%s\')", weapon);
+
 	SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
 }
 
@@ -565,7 +674,7 @@ AddOfficialMaps(client)
 	{
 		// create the SQL insert command to insert the official maps
 		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (\'%s\', \'%s\', 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
-		PrintToConsole(client, "Adding Official Maps...");
+		PrintToConsole(client, "Adding Official Map %s...", OFFICIAL_MAPS_2[i]);
 		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
 	}
 }
@@ -673,7 +782,7 @@ QueryWeapons(client)
 //--------------------------------------------------
 // PostQueryWeapons
 //!
-//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the weapons in the database.
+//! \brief This is the callback used to handle the query from the QueryWeapons function. It will create a string of all the weapons in the database.
 //--------------------------------------------------
 public PostQueryWeapons(Handle:owner, Handle:result, const String:error[], any:data)
 {
@@ -697,7 +806,6 @@ public PostQueryWeapons(Handle:owner, Handle:result, const String:error[], any:d
 		SQL_FetchString(result, 0, weaponid, sizeof(weaponid));
 		SQL_FetchString(result, 1, name, sizeof(name));
 		Format(buf, sizeof(buf), "%s %s", weaponid, name);
-		PrintToConsole(client, buf);
 		WritePackString(dataPackHandle, buf);
 	}
 
@@ -742,6 +850,8 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 
 	new length = SQL_GetRowCount(result);
 
+	PrintToChat(client, "%d results", length);
+
 	new Handle:dataPackHandle = CreateDataPack();
 
 	while (SQL_FetchRow(result))
@@ -749,7 +859,6 @@ public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:d
 		SQL_FetchString(result, 0, steamid, sizeof(steamid));
 		SQL_FetchString(result, 1, name, sizeof(name));
 		Format(buf, sizeof(buf), "%s %s", steamid, name);
-		PrintToConsole(client, buf);
 		WritePackString(dataPackHandle, buf);
 	}
 
@@ -784,10 +893,11 @@ public PostQueryMaps(Handle:owner, Handle:result, const String:error[], any:data
 	decl String:mapName[64];
 	decl String:campaignName[64];
 
-	new length = SQL_GetRowCount(result);
+	new length = 0;
 	new client = data;
 
 	new Handle:dataPackHandle = CreateDataPack();
+	PrintToChat(client, "%d Results...", SQL_GetRowCount(result));
 
 	while (SQL_FetchRow(result))
 	{
@@ -795,6 +905,7 @@ public PostQueryMaps(Handle:owner, Handle:result, const String:error[], any:data
 		SQL_FetchString(result, 1, campaignName, sizeof(campaignName));
 		Format(buf, sizeof(buf), "%s %s", mapName, campaignName);
 		WritePackString(dataPackHandle, buf);
+		length++;
 	}
 
 	// call output to console function
@@ -816,6 +927,7 @@ OutputDataPackStrings(client, Handle:dataPackHandle, length)
 {
 	new i;
 	decl String:buf[250];
+	ResetPack(dataPackHandle);
 
 	for (i = 0; i < length; i++)
 	{
