@@ -22,9 +22,15 @@
 *			  8.000 EVENT CALLBACK FUNCTIONS
 *             9.000 HELPER FUNCTIONS
 * 
-* Features to add: Weapon Stats (requested by phoenix)
+* Features to add: Granular Weapon Stats (requested by phoenix)
 *                  Headshot % not count (requested by sauce)
-*                  
+*                  Granular Zombie Stats (requested by sauce)
+*                  Granular Item Usage Stats (requested by sauce)
+*                  Data collection via sql and sqllite databases (requested by sauce)
+*                  Web interface for viewing stats (requested by sauce)
+*                  Add support for witches
+*                  Add support for coop, scavanenge, versus, realism, realism versus
+*                  Add mutation support
 * Acknowledgements: beatslaughter   - for code from his survival helpers plugin
 *                   Domino Effect   - for pre-alpha testing
 *                   phoenix_advance - for pre-alpha testing 
@@ -150,6 +156,8 @@ new const String:GAME_MODES[][64] = {
 
 // global variables that track survivor data
 new bool:survivor[MAXPLAYERS];    // active survivors
+new survivorName[MAXPLAYERS][33];
+new survivorSteamID[MAXPLAYERS];  // stores active survivors steam ID
 new survivorKills[MAXPLAYERS][8]; // stores the kills for each survivor for each SI type
 new survivorDmg[MAXPLAYERS][8];   // stores the dmg for each survivor for each SI type
 new survivorHeadShots[MAXPLAYERS]; // headshot counter
@@ -162,6 +170,16 @@ new survivorDmgToTank[MAXPLAYERS][MAXPLAYERS]; // tracks individual dmg to tank 
 
 // global variables that track CI data
 new CIHealth[MAXENTITIES];        // Tracks health of every common infected. This is inefficient memory usage since not all entities (array elements) are common infected.
+
+// global variables that store data of players that are no longer playing
+new storedSurvivorKills[50][8];
+new storedSurvivorDmg[50][8];
+new storedSurvivorHeadShots[50];
+new storedSurvivorFFDmg[50];
+new String:storedSurvivorSteamID[50][20];
+new String:storedSurvivorName[50][33];
+new storedSurvivorDmgToTank[50][MAXPLAYERS];
+new bool:storedSurvivor[50];
 
 // global variables that deal with current game state
 new roundEnded = false;
@@ -278,6 +296,13 @@ public Action:Command_Stats(client, args) {
 	new String:arg1[33], String:arg2[33];
 	new clientToPrint;
 	
+	// initialize survivors for stats collect if necessary
+	for (new i = 0; i < MaxClients; i++) {
+		if (IsClientSurvivor(i) && !survivor[i]) {
+			survivor[i] = true;
+		}
+	}
+	
 	if (IsClientHuman(client)) { // Process this if the client is a human
 		if (args == 1) {
 			
@@ -384,11 +409,12 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 			survivor[attacker] = true;
 		}
 		
-		//record survivor attack
+		// record headshot
 		if ((hitgroup == 1) && (victimTeam != TEAM_SURVIVOR)) {
 			survivorHeadShots[attacker]++;
 		}
 		
+		// record friendly fire
 		if (victimTeam == TEAM_SURVIVOR) { //record friendly fire
 			survivorFFDmg[attacker] += damage;
 		}
@@ -519,7 +545,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new model_id;
 	decl String:weapon[64];
 	
-	if (IsClientHuman(attacker) && collectStats) {
+	if (IsClientSurvivor(attacker) && collectStats) {
 		// get the attackers weapon
 		GetClientWeapon(attacker, weapon, sizeof(weapon));
 
@@ -570,17 +596,16 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		CIHealth[victim] -= realdamage;
 
 		//Only process if the player is a legal attacker (i.e., a player)
-
-		new attackerTeam = GetClientTeam(attacker);
-		if(attackerTeam == TEAM_SURVIVOR) {
+		
+		if (!survivor[attacker]) {
 			survivor[attacker] = true;
+		}
+		
+		survivorDmg[attacker][COMMON] += realdamage;
 
-			survivorDmg[attacker][COMMON] += realdamage;
-
-			// check for a headshot
-			if (hitgroup == 1) {
-				survivorHeadShots[attacker]++;
-			}
+		// check for a headshot
+		if (hitgroup == 1) {
+			survivorHeadShots[attacker]++;
 		}
 
 	}
@@ -590,18 +615,13 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	
-
 	//Only process if the player is a legal attacker (i.e., a player)
-	if (IsClientHuman(attacker) && collectStats)
+	if (IsClientSurvivor(attacker) && collectStats)
 	{
-		new attackerTeam = GetClientTeam(attacker);
-		if(attackerTeam == TEAM_SURVIVOR) 
-		{
-			if (!survivor[attacker]) {
-				survivor[attacker] = true;
-			}
-			survivorKills[attacker][COMMON]++;
+		if (!survivor[attacker]) {
+			survivor[attacker] = true;
 		}
+		survivorKills[attacker][COMMON]++;
 	}
 }
 
@@ -611,6 +631,14 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 	Command_ResetStats(0,0);
 	roundEnded = false;
 	collectStats = true;
+	
+	// initialize survivors for stats collection
+	for (new i = 0; i < MaxClients; i++) {
+		if(IsClientSurvivor(i)) {
+			survivor[i] = true;
+		}
+	}
+	
 #if DEBUG
 	PrintToChatAll("\x01Event_RoundStart \x04FIRED[ResetStats(0,0); roundEnded = false; collectStats = true;]");
 #endif
@@ -1004,6 +1032,69 @@ PrintStats(printToClient, option, bool:detail) {
 	}
 }
 
+// Initializes necessary global variables for stats collection for a particular client index
+
+CollectStatsForClient(client) {
+	if (IsClientSurvivor(client)) {
+		GetClientName(client, survivorName[client], sizeof(survivorName[client]));
+		GetClietnAuthString(client, survivorSteamID[client], sizeof(survivorSteamID[client]));
+		survivor[client] = true;
+	}
+}
+
+// stores statistics in storage variables. this can be used when player disconnects
+// or changes to spectator such that total statistics are unaffected
+
+StoreStats(client) {
+	
+	for (new i = 0; i < 50; i++) {
+		if (!storedSurvivor[i]) {
+			for (new j = 0; j < 8; j++) {
+				storedSurvivorKills[i][j] = survivorKills[client][j];
+				storedSurvivorDmg[i][j]   = survivorDmg[client][j];
+			}
+			
+			storedSurvivorHeadShots[i] = survivorHeadShots[client];
+			storedSurvivorFFDmg[i]     = survivorFFDmg[client];
+			storedSurvivorSteamID[i]   = survivorSteamID[client];
+			storedSurvivorName[i]      = survivorName[client];
+			
+			for (new k = 0; k < MaxClients; k++) {
+				storedSurvivorDmgToTank[i][k] = survivorDmgToTank[client][k];
+			}
+			storedSurvivor[i] = true;
+			break;
+		}
+	}
+
+}
+
+// retrieves stored statistics of a certain steam ID, name, and inputs 
+// all data in global variables with a specific client index
+
+RetrieveStats(const String:name, const String:steamID, client) {
+	for (new i = 0; i < 50; i++) {
+		if (StrEqual(storedSurvivorSteamID[i], steamID, true) && (StrEqual(storedSurvivorName[i],name,false)) {
+			for (new j = 0; j < 8; j++) {
+				survivorKills[client][j] = storedSurvivorKills[i][j];
+				survivorDmg[client][j]   = storedSurvivorDmg[i][j];
+			}
+			
+			survivorHeadShots[client]  = storedSurvivorHeadShots[i];
+			survivorFFDmg[client]      = storedSurvivorFFDmg[i];
+			survivorSteamID[client]    = storedSurvivorSteamID[i];
+			survivorName[client]       = storedSurvivorName[i];
+			
+			for (new k = 0; k < MaxClients; k++) {
+				storedSurvivorDmgToTank[i][k] = survivorDmgToTank[client][k];
+			}
+			storedSurvivor[i] = true;
+			break;
+		}
+	}
+}
+
+// prints tank damage statistics after each tank kill in the chat output 
 
 PrintTankStats(victim) {
 	new Float:percent = 0.0;
@@ -1178,7 +1269,6 @@ ResetCIHealth() {
 	}
 }
 
-
 bool:ResetStatsByClient(client) {
 	if (IsClientHuman(client)) {
 		survivor[client]          = false;
@@ -1229,7 +1319,6 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 		// }
 	} // end outer for loop
 }
-
 
 // This function returns the client index that corresponds to a given name (string)
 GetSurvivorByName(String:name[33]) {
