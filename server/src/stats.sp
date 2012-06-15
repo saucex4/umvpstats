@@ -1010,12 +1010,14 @@ PrintStats(printToClient, option, bool:detail) {
 		7name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
 		8FF: XXX HS: XXXXX Total Dmg: XXXXXX
 		*/
-		
+		/*
 			new players = 0;
 			new clientTankDamage[MaxClients];
 			new clientSIKills[MaxClients];
 			new clientCIKills[MaxClients];
 			new clientID[MaxClients];
+			
+			new clientInfo[MaxClients][6]  // 0) clientID 1) tankdamage 2) si damage 3) ci damage 
 			
 			for (new i = 0; i < MaxClients; i++) {
 				if (IsClientSurvivor(i)) {
@@ -1062,8 +1064,8 @@ PrintStats(printToClient, option, bool:detail) {
 					if ((clientRating[m] == ratingTracker[n][2]) && (ratingTracker[n][0] == 0)) {
 						orderedInfo[m][0] = ratingTracker[n][1]; // clientID
 						orderedInfo[m][1] = clientTankDamage[m];     // damage
-						orderedInfo[m][2] = clientSIKills[m];
-						orderedInfo[m][3] = clientCIKills[m];
+						orderedInfo[m][2] = clientSIKills[m]; // SI kills
+						orderedInfo[m][3] = clientCIKills[m]; // CI kills
 						ratingTracker[n][0] = 1;
 						n = players;
 						//PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
@@ -1094,14 +1096,14 @@ PrintStats(printToClient, option, bool:detail) {
 				
 				if (detail) {
 					if(printToClient == 0) {
-						PrintToChatAll("\x04FF: \x01%d \x04HS: \x01%d \x04Total Dmg: \x01%d",)
+						PrintToChatAll("\x04FF: \x01%d \x04HS: \x01%d \x04Total Dmg: \x01%d",survivorFFDmg[orderedInfo[l][0]],survivorHeadShots[orderedInfo[l][0]])
 					}
 					else {
 						PrintToChat(printToClient,\x04FF: \x01%d \x04HS: \x01%d \x04Total Dmg: \x01%d",);
 					}
 				}
 			}
-			
+			*/
 		}
 		case 20000: {
 		/*
