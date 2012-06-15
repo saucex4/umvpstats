@@ -734,7 +734,7 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	// Ensure that the infected health is set to zero. This should be the case in almost all situations, however, the survivor zombie has some weird damage properties that causes it to show up having health remaining even though it is dead.
-	CIHealth[GetEventInt(event, infected_id)] = 0;
+	CIHealth[GetEventInt(event, "entityid")] = 0;
 	
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (IsClientSurvivor(attacker) && collectStats)
@@ -1018,10 +1018,10 @@ PrintStats(printToClient, option, bool:detail) {
 			new clientID[MaxClients];
 			
 			for (new i = 0; i < MaxClients; i++) {
-				if (survivor[i]) {
-					//clientTankDamage[players] = survivorDmg[i][TANK];
-					//clientSIKills[players]    = survivorKills[i][HUNTER] + survivorKills[i][CHARGER] + survivorKills[i][JOCKEY] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER]; 
-					//clientCIKills[players]    = survivorKills[i][COMMON];
+				if (IsClientSurvivor(i)) {
+					clientTankDamage[players] = survivorDmg[i][TANK];
+					clientSIKills[players]    = survivorKills[i][HUNTER] + survivorKills[i][CHARGER] + survivorKills[i][JOCKEY] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER]; 
+					clientCIKills[players]    = survivorKills[i][COMMON];
 					clientID[players]         = i;
 					players++;
 				}
@@ -1029,26 +1029,54 @@ PrintStats(printToClient, option, bool:detail) {
 			
 			// Rate Players
 			
-			new rating[players];
+			new clientRating[players];
+			new ratingTracker[players][6]; // 0 is client ID and 1 is rating
 			for (new j = 0; j < players; j++) {
-				rating[j] = RatePlayer(clientID[j]);
-			}
-			
-			// Copy array
-			new ratingCopy[players];
-			for (new k = 0; k < players; k++) {
-				ratingCopy[k] = rating[k];
+				clientRating[j] = RatePerformance(clientTankDamage[j], clientSIKills[j], clientCIKills[j]);
+				ratingTracker[j][1] = clientID[j];
+				ratingTracker[j][2] = clientRating[j];
+				ratingTracker[j][3] = clientTankDamage[j];
+				ratingTracker[j][4] = clientSIKills[j];
+				ratingTracker[j][5] = clientCIKills[j];
 			}
 			
 			// Sort Rate
-			SortInteger(ratingCopy, players, Sort_Descending);
+			SortIntegers(clientRating, players, Sort_Descending);
 			
-			new first = true;
+			// how many winners
+			new winners = 1;
+			for (new k = 1; k < players; k++) {
+				if (clientRating[0] == clientRating[k]) {
+					winners++;
+				}
+			}
+			
+			if((winners == players) &&(printToClient == 0)) {
+				PrintToChatAll("\x03[MVP CITY]");
+			}
+			
+			// sort damage and clientID
+			new orderedInfo[players][4]; // 0 id, 1 tank damage, 2 si kills, 3 ci kills
+			for (new m = 0; m < players; m++) {
+				for (new n = 0; n < players; n++) {
+					if ((clientRating[m] == ratingTracker[n][2]) && () && (ratingTracker[n][0] == 0)) {
+						orderedInfo[m][0] = ratingTracker[n][1]; // clientID
+						orderedInfo[m][1] = clientTankDamage[m];     // damage
+						orderedInfo[m][2] = clientSIKills[m];
+						orderedInfo[m][3] = clientCIKills[m];
+						ratingTracker[n][0] = 1;
+						n = players;
+						//PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
+					}
+				}
+			}
+			
+			
+			
 			// Display MVP Info
 			for (new l = 0; l < players; l++) {
 				if (printToClient == 0) {
-					if (first) {
-						first = false;
+					if (l == 0 || (l < winners)) {
 						PrintToChatAll("\x05MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
 					}
 					else {
@@ -1056,8 +1084,7 @@ PrintStats(printToClient, option, bool:detail) {
 					}
 				}
 				else {
-					if (first) {
-						first = false;
+					if (l == 0 || (l < winners)) {
 						PrintToChat(printToClient,"\x04MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
 					}
 					else {
@@ -1206,6 +1233,30 @@ PrintStats(printToClient, option, bool:detail) {
 		
 		}
 	}
+}
+
+// This rates performance based on tank damage, SI kill,s and CI kills
+// There is 3 times weight given to taken damage, 2 times weight given to SI kills
+// and CIKills are taken as they are.
+// These added together gives a performance rating
+// This function will change overtime as the plugin gets more complex
+// I want to add things like kits, pills, adren, and other items used
+
+RatePerformance(TankDamage, SIKills, CIKills) {
+	/* 
+	Criteria
+	
+	1. Tank Damage x 3 Weight
+	2. SI Kills x 2 Weight
+	3. CI Kills x 1 Weight
+	
+	*/
+	new rating = 0;
+	rating += (TankDamage*3);
+	rating += (SIKills*2);
+	rating += CIKills;
+	return rating;
+	
 }
 
 // Initializes necessary global variables for stats collection for a particular client index
