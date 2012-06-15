@@ -1010,7 +1010,7 @@ PrintStats(printToClient, option, bool:detail) {
 		7name5678901234567 (1)T:XXX% (1)SI:XXX% (1)CI:XXX%
 		8FF: XXX HS: XXXXX Total Dmg: XXXXXX
 		*/
-		/*
+		
 			new players = 0;
 			new clientTankDamage[MaxClients];
 			new clientSIKills[MaxClients];
@@ -1059,7 +1059,7 @@ PrintStats(printToClient, option, bool:detail) {
 			new orderedInfo[players][4]; // 0 id, 1 tank damage, 2 si kills, 3 ci kills
 			for (new m = 0; m < players; m++) {
 				for (new n = 0; n < players; n++) {
-					if ((clientRating[m] == ratingTracker[n][2]) && () && (ratingTracker[n][0] == 0)) {
+					if ((clientRating[m] == ratingTracker[n][2]) && (ratingTracker[n][0] == 0)) {
 						orderedInfo[m][0] = ratingTracker[n][1]; // clientID
 						orderedInfo[m][1] = clientTankDamage[m];     // damage
 						orderedInfo[m][2] = clientSIKills[m];
@@ -1077,18 +1077,18 @@ PrintStats(printToClient, option, bool:detail) {
 			for (new l = 0; l < players; l++) {
 				if (printToClient == 0) {
 					if (l == 0 || (l < winners)) {
-						PrintToChatAll("\x05MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
+						PrintToChatAll("\x05MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",orderedInfo[l][0],rank[l][0],percent[l][0],rank[l][1],percent[l][1],rank[l][2],percent[l][2]);
 					}
 					else {
-						PrintToChatAll("\x04%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
+						PrintToChatAll("\x04%17N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",orderedInfo[l][0],rank[l][0],percent[l][0],rank[l][1],percent[l][1],rank[l][2],percent[l][2]);
 					}
 				}
 				else {
 					if (l == 0 || (l < winners)) {
-						PrintToChat(printToClient,"\x04MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
+						PrintToChat(printToClient,"\x04MVP:%13N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",orderedInfo[l][0],rank[l][0],percent[l][0],rank[l][1],percent[l][1],rank[l][2],percent[l][2]);
 					}
 					else {
-						PrintToChat(printToClient,"\x04%17N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",);
+						PrintToChat(printToClient,"\x04%17N (%d)T:%d%% (%d)SI:%d%% (%d)CI:%d%% ",orderedInfo[l][0],rank[l][0],percent[l][0],rank[l][1],percent[l][1],rank[l][2],percent[l][2]);
 					}
 				}
 				
@@ -1101,7 +1101,7 @@ PrintStats(printToClient, option, bool:detail) {
 					}
 				}
 			}
-			*/
+			
 		}
 		case 20000: {
 		/*
