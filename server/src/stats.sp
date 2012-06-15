@@ -801,14 +801,14 @@ public Event_PlayerBotReplace(Handle:event, const String:name[], bool:dontBroadc
 		new String:playerName[33];
 		new String:playerSteamID[20];
 		
-		GetClientName(player, playerName, sizeof(playerName));
-		GetClientAuthString(player, playerSteamID, sizeof(playerSteamID));
+		GetClientName(bot, playerName, sizeof(playerName));
+		GetClientAuthString(bot, playerSteamID, sizeof(playerSteamID));
 		
-		StartStatsForClient(player);
+		StartStatsForClient(bot);
 		RetrieveStats(playerName,playerSteamID,player);
 		
-		StopStatsForClient(bot);
-		StoreStats(bot);
+		StopStatsForClient(player);
+		StoreStats(player);
 		
 	}
 }
@@ -818,14 +818,16 @@ public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadc
 	new bot    = GetClientOfUserId(GetEventInt(event, "bot"));
 	if (IsClientSurvivor(player) && IsClientBot(bot)) {
 		
-		new String:botName[33];
-		GetClientName(bot, botName, sizeof(botName));
+		new String:playerName[33];
+		new String:playerSteamID[20];
+		GetClientName(player, botName, sizeof(botName));
+		GetClientAuthString(player, playerSteamID, sizeof(playerSteamID));
 		
-		StopStatsForClient(player);
-		StoreStats(player);
+		StopStatsForClient(bot);
+		StoreStats(bot);
 		
-		StartStatsForClient(bot);
-		RetrieveStats(botName,"BOT",bot);
+		StartStatsForClient(player);
+		RetrieveStats(playerName,playerSteamID,player);
 	}
 }
 
