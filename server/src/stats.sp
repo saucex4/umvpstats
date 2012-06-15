@@ -1286,6 +1286,7 @@ PrintTankStats(victim) {
 			tracker[players][2] = 0;
 			players++;
 			//PrintToChatAll("survivorDmgToTank[i][victim] = %d, i = %d",survivorDmgToTank[i][victim], i);
+		
 		}
 	}
 	
