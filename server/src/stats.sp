@@ -43,6 +43,7 @@
 #pragma semicolon 1
 
 #include <sourcemod>
+#include <sdktools> // needed to check the state of the game
 
 #define MAXENTITIES 2048
 #define DEBUG 0
@@ -156,8 +157,8 @@ new const String:GAME_MODES[][64] = {
 
 // global variables that track survivor data
 new bool:survivor[MAXPLAYERS];    // active survivors
-new survivorName[MAXPLAYERS][33];
-new survivorSteamID[MAXPLAYERS];  // stores active survivors steam ID
+new String:survivorName[MAXPLAYERS][33];
+new String:survivorSteamID[MAXPLAYERS][20];  // stores active survivors steam ID
 new survivorKills[MAXPLAYERS][8]; // stores the kills for each survivor for each SI type
 new survivorDmg[MAXPLAYERS][8];   // stores the dmg for each survivor for each SI type
 new survivorHeadShots[MAXPLAYERS]; // headshot counter
@@ -184,36 +185,61 @@ new bool:storedSurvivor[50];
 // global variables that deal with current game state
 new roundEnded = false;
 new collectStats = false;
+new loadLate     = false;
 
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
 	
-	//events to hook into
-	//HookEvent("player_hurt", Event_PlayerHurt);
+	// events to hook into
+	HookEvent("player_hurt", Event_PlayerHurt);
+	// HookEvent("player_death", Event_PlayerDeath);
+	HookEvent("player_spawn", Event_PlayerSpawn);
 	HookEvent("infected_hurt", Event_InfectedHurt);
 	HookEvent("infected_death", Event_InfectedDeath);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
-	HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
+	// HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
 	HookEvent("player_disconnect", Event_PlayerDisconnect);
 	HookEvent("player_bot_replace", Event_PlayerBotReplace);
 	HookEvent("bot_player_replace", Event_BotPlayerReplace);
 	
 	// Admin commands - these are not usable by non admin users
-	RegAdminCmd("sm_resetstats", Command_ResetStats,ADMFLAG_SLAY);
+	RegAdminCmd("sm_resetstats", Command_ResetStats,ADMFLAG_GENERIC);
 
 	// Debug commands for developers
-#if DEBUG
-	RegAdminCmd("sm_printclients", Command_PrintClients, ADMFLAG_SLAY); // Prints all clients w/ client index and name
-	RegAdminCmd("sm_printbyname", Command_PrintClientByName, ADMFLAG_SLAY); // Print a client by name
-	RegAdminCmd("sm_printclientbyindex", Command_PrintClientByIndex, ADMFLAG_SLAY); // Print a client by client index
-	RegAdminCmd("sm_printsurvivor", Command_PrintSurvivor, ADMFLAG_SLAY);
-#endif
 
+	RegAdminCmd("sm_printclients", Command_PrintClients, ADMFLAG_GENERIC); // Prints all clients w/ client index and name
+	RegAdminCmd("sm_printbyname", Command_PrintClientByName, ADMFLAG_GENERIC); // Print a client by name
+	RegAdminCmd("sm_printclientbyindex", Command_PrintClientByIndex, ADMFLAG_GENERIC); // Print a client by client index
+	RegAdminCmd("sm_printsurvivor", Command_PrintSurvivor, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_statson", Command_StatsOn, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_statsoff", Command_StatsOff, ADMFLAG_GENERIC);
+	
 	// Console/User commands - these are usable by all users
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
-
+	
+	// check if plugin was loaded late
+	if (loadLate) {
+		
+		for (new i = 0 ; i < MaxClients; i++) {
+			if (IsClientSurvivor(i)) { // collect stats for the survivors
+				StartStatsForClient(i);
+			}
+		}
+		if (GameRules_GetRoundState() == RoundState_RoundRunning) { // if the game is running make sure stats can be collected
+			collectStats = true;
+		}
+	}
+	
 }
+
+// This function is called before OnPluginStart. This is to check for late load
+
+public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max) {
+	loadLate = late;
+	return APLRes_Success;
+}
+
 
 /* [6.000]***************ADMIN COMMAND FUNCTIONS*************** */
 public Action:Command_PrintClients(client,args) {
@@ -266,6 +292,14 @@ public Action:Command_PrintSurvivor(client, args) {
 	}
 }
 
+public Action:Command_StatsOn(client, args) {
+	collectStats = true;
+}
+
+public Action:Command_StatsOff(client, args) {
+	collectStats = false;
+}
+
 //--------------------------------------------------
 // ResetStats
 //!
@@ -280,7 +314,7 @@ public Action:Command_ResetStats(client, args) {
 		}
 		survivorHeadShots[i] = 0; // zero out headshot count
 		survivorFFDmg[i] = 0;     // zero out friendly fire damage
-		survivor[i] = false;      // zero out all tracked survivors
+		StopStatsForClient(i);      // zero out all tracked survivors
 		SIClients[i] = false;     // zero out all tracked SI
 		SIHealth[i]  = 0;         // zero out all tracked SI health
 	}
@@ -367,7 +401,6 @@ public Action:Command_Stats(client, args) {
 }
 
 
-
 /* [8.000]***************EVENT CALLBACK FUNCTIONS*************** */
 
 //--------------------------------------------------
@@ -392,7 +425,11 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	// new attackerSteamID[20];
+	// new attackerName[33];
 	
+	// GetClientAuthString(attacker,attackerSteamID,sizeof(attackerSteamID));
+	// GetClientName(attacker,attackerName,sizeof(attackerName));
 	/*
 	Conditions for collection
 			1) Don't collect damage by SI
@@ -405,8 +442,8 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 #if DEBUG
 		PrintToChatAll("a = %d, dmg = %d, vic = %d, hg = %d",attacker, damage,victim, hitgroup);
 #endif
-		if (!survivor[attacker]) {
-			survivor[attacker] = true;
+		if (!IsCollectingStats(attacker)) {
+			StartStatsForClient(attacker);
 		}
 		
 		// record headshot
@@ -485,7 +522,8 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 				if (SIClients[victim]) { //if this tank is alive record
 					// if ((SIHealth[victim] <= 0) || (victimRemainingHealth > SIHealth[victim])) {
 					
-					if (damage >= SIHealth[victim]) {
+					// if (damage >= SIHealth[victim]) {
+					if (IsTankIncapacitated(victim)) {
 #if DEBUG
 						PrintToChatAll("%N %d/%d",victim, victimRemainingHealth, (GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff));
 #endif	
@@ -499,7 +537,7 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 						}
 						survivorKills[attacker][TANK]++;
 					}
-					else if (SIClients[victim]) {
+					else { // if (SIClients[victim]) {
 #if DEBUG
 						PrintToChatAll("%N %d/%d",victim, victimRemainingHealth, (GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff));
 #endif
@@ -520,7 +558,6 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	}
 	
 }
-
 
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//--------------------------------------------------
@@ -597,8 +634,8 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 		//Only process if the player is a legal attacker (i.e., a player)
 		
-		if (!survivor[attacker]) {
-			survivor[attacker] = true;
+		if (!IsCollectingStats(attacker)) {
+			StartStatsForClient(attacker);
 		}
 		
 		survivorDmg[attacker][COMMON] += realdamage;
@@ -618,10 +655,48 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (IsClientSurvivor(attacker) && collectStats)
 	{
-		if (!survivor[attacker]) {
-			survivor[attacker] = true;
+		if (!IsCollectingStats(attacker)) {
+			StartStatsForClient(attacker);
 		}
 		survivorKills[attacker][COMMON]++;
+	}
+}
+
+
+public Action:Event_PlayerIncapacitated(Handle:event, String:event_name[], bool:dontBroadcast) {
+	new victim					= GetClientOfUserId(GetEventInt(event, "userid"));
+	if (IsClientInfected(victim) && SIClients[victim]) {
+		SIClients[victim] = false;
+		SIHealth[victim] = 0;
+		for (new z = 0; z < MaxClients; z++) {
+			survivorDmgToTank[z][victim] = 0;
+		}
+	}
+}
+
+public Action:Event_PlayerSpawn(Handle:event, String:event_name[], bool:dontBroadcast) {
+	new id = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (IsClientInfected(id)) {
+		new String:name[33];
+		GetClientModel(id,name,sizeof(name));
+		SIClients[id] = true;
+		SIHealth[id] = GetEntProp(id, Prop_Send, "m_iMaxHealth") & 0xffff;
+		if (StrContains(name, "Hulk", false) != -1) {
+			for (new x = 0; x < MAXPLAYERS; x++) {
+				survivorDmgToTank[x][id] = 0;
+			}
+		}
+	}
+	else if(IsClientSurvivor(id)) {
+		StartStatsForClient(id);
+		
+		new String:playerName[33];
+		new String:playerSteamID[20];
+		
+		GetClientName(id, playerName, sizeof(playerName));
+		GetClientAuthString(id, playerSteamID, sizeof(playerSteamID));
+		
+		RetrieveStats(playerName, playerSteamID, id);
 	}
 }
 
@@ -635,7 +710,7 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 	// initialize survivors for stats collection
 	for (new i = 0; i < MaxClients; i++) {
 		if(IsClientSurvivor(i)) {
-			survivor[i] = true;
+			StartStatsForClient(i);
 		}
 	}
 	
@@ -656,44 +731,59 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 
 public Event_PlayerDisconnect(Handle:event, const String:name[], bool:dontBroadcast) {
 	new client = GetClientOfUserId(GetEventInt(event,"userid"));
-	if(IsClientHuman(client) && !dontBroadcast) {
-		survivor[client] = false;
+	if(IsClientSurvivor(client) && IsCollectingStats(client)) {
+		StopStatsForClient(client);
 	}
 }
 
-public Event_PlayerFirstSpawn(Handle:event, const String:name[], bool:dontBroadcast) {
-	new id = GetClientOfUserId(GetEventInt(event,"userid"));
-	if (IsClientInfected(id)) { // track health for SI
-		SIClients[id] = true;
-		SIHealth[id] = GetEntProp(id, Prop_Send, "m_iMaxHealth") & 0xffff;
-	}
-	else if (IsClientSurvivor(id)) { // actively collecting stats
-		if (GetClientTeam(id) == TEAM_SURVIVOR) {
-			survivor[id] = true;
-		}
-	}
-}
 
 public Event_PlayerBotReplace(Handle:event, const String:name[], bool:dontBroadcast) {
 	new player = GetClientOfUserId(GetEventInt(event, "player"));
 	new bot    = GetClientOfUserId(GetEventInt(event, "bot"));
-	if (IsClientHuman(player) && IsClientBot(bot) && (GetClientTeam(player) == TEAM_SURVIVOR)) {
-		survivor[player] = true;
-		survivor[bot]    = false;
+	if (IsClientSurvivor(player) && IsClientBot(bot)) {
+		new String:playerName[33];
+		new String:playerSteamID[20];
+		
+		GetClientName(player, playerName, sizeof(playerName));
+		GetClientAuthString(player, playerSteamID, sizeof(playerSteamID));
+		
+		StartStatsForClient(player);
+		RetrieveStats(playerName,playerSteamID,player);
+		
+		StopStatsForClient(bot);
+		StoreStats(bot);
+		
 	}
 }
 
 public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadcast) {
-	new player = GetEventInt(event, "player");
-	new bot    = GetEventInt(event, "bot");
-	if (IsClientHuman(player) && IsClientBot(bot) && (GetClientTeam(player) == TEAM_SURVIVOR)) {
-		survivor[player] = false;
-		survivor[bot]    = true;
+	new player = GetClientOfUserId(GetEventInt(event, "player"));
+	new bot    = GetClientOfUserId(GetEventInt(event, "bot"));
+	if (IsClientSurvivor(player) && IsClientBot(bot)) {
+		
+		new String:botName[33];
+		GetClientName(bot, botName, sizeof(botName));
+		
+		StopStatsForClient(player);
+		StoreStats(player);
+		
+		StartStatsForClient(bot);
+		RetrieveStats(botName,"BOT",bot);
 	}
 }
 
 
 /* [9.000]***************HELPER FUNCTIONS*************** */
+
+bool:IsTankIncapacitated(client) {
+	if (IsIncapacitated(client) || GetClientHealth(client) < 1) return true;
+	return false;
+}
+
+bool:IsIncapacitated(client) {
+	return bool:GetEntProp(client, Prop_Send, "m_isIncapacitated");
+}
+
 PrintStats(printToClient, option, bool:detail) {
 	// client2 values
 	// 100 = print mvp
@@ -721,12 +811,12 @@ PrintStats(printToClient, option, bool:detail) {
 		0[SI]: XXXX Kills [CI]: XXXXX Kills [T]: XXX Kills <-- skip if detail flag is true
 		1SI:XXXX(XXXXXXX) CI:XXXX(XXXXXXX) T:XXXX(XXXXXXX)
 		*/
-			for (new i = 1; i < MAXPLAYERS; i++) {
+			for (new i = 1; i < MaxClients; i++) {
 				// process name
 				new String:name[20];
 				
 				// end process name
-				if (survivor[i]) {
+				if (IsCollectingStats(i)) {
 					GetClientName(i,name, sizeof(name));
 					// process SI %
 					new SIKills   = survivorKills[i][HUNTER] + survivorKills[i][JOCKEY] + survivorKills[i][CHARGER] + survivorKills[i][SMOKER] + survivorKills[i][SPITTER] + survivorKills[i][BOOMER];
@@ -1034,10 +1124,21 @@ PrintStats(printToClient, option, bool:detail) {
 
 // Initializes necessary global variables for stats collection for a particular client index
 
-CollectStatsForClient(client) {
+IsCollectingStats(client) {
+	if (survivor[client]) {
+		return true;
+	}
+	return false;
+}
+
+StopStatsForClient(client) {
+	survivor[client] = false;
+}
+
+StartStatsForClient(client) {
 	if (IsClientSurvivor(client)) {
-		GetClientName(client, survivorName[client], sizeof(survivorName[client]));
-		GetClietnAuthString(client, survivorSteamID[client], sizeof(survivorSteamID[client]));
+		GetClientName(client, survivorName[client], 33);
+		GetClientAuthString(client, survivorSteamID[client], 20);
 		survivor[client] = true;
 	}
 }
@@ -1045,7 +1146,7 @@ CollectStatsForClient(client) {
 // stores statistics in storage variables. this can be used when player disconnects
 // or changes to spectator such that total statistics are unaffected
 
-StoreStats(client) {
+bool:StoreStats(client) {
 	
 	for (new i = 0; i < 50; i++) {
 		if (!storedSurvivor[i]) {
@@ -1063,18 +1164,18 @@ StoreStats(client) {
 				storedSurvivorDmgToTank[i][k] = survivorDmgToTank[client][k];
 			}
 			storedSurvivor[i] = true;
-			break;
+			return true;
 		}
 	}
-
+	return false;
 }
 
 // retrieves stored statistics of a certain steam ID, name, and inputs 
 // all data in global variables with a specific client index
 
-RetrieveStats(const String:name, const String:steamID, client) {
+bool:RetrieveStats(const String:name[], const String:steamID[], client) {
 	for (new i = 0; i < 50; i++) {
-		if (StrEqual(storedSurvivorSteamID[i], steamID, true) && (StrEqual(storedSurvivorName[i],name,false)) {
+		if (StrEqual(storedSurvivorSteamID[i], steamID, true) && (StrEqual(storedSurvivorName[i],name,false))) {
 			for (new j = 0; j < 8; j++) {
 				survivorKills[client][j] = storedSurvivorKills[i][j];
 				survivorDmg[client][j]   = storedSurvivorDmg[i][j];
@@ -1089,9 +1190,10 @@ RetrieveStats(const String:name, const String:steamID, client) {
 				storedSurvivorDmgToTank[i][k] = survivorDmgToTank[client][k];
 			}
 			storedSurvivor[i] = true;
-			break;
+			return true;
 		}
 	}
+	return false;
 }
 
 // prints tank damage statistics after each tank kill in the chat output 
@@ -1103,7 +1205,7 @@ PrintTankStats(victim) {
 	new damage[MaxClients];
 	new tracker[MaxClients][3];
 	for(new i = 1; i < MaxClients; i++) {
-		if (IsClientSurvivor(i) && survivor[i]) {
+		if (IsClientSurvivor(i) && IsCollectingStats(i)) {
 			/*
 			 1111111111111111111111111111111111111111111111111
 			1name56789012345678901234567890 XXXX Damage (XXX%)
@@ -1126,42 +1228,68 @@ PrintTankStats(victim) {
 	
 	// sort damage and clientID
 	new orderedInfo[players][2];
-	
 	for (new l = 0; l < players; l++) {
 		for (new m = 0; m < players; m++) {
 			if ((damage[l] == tracker[m][1]) && (tracker[m][2] == 0)) {
 				orderedInfo[l][0] = tracker[m][0]; // clientID
 				orderedInfo[l][1] = damage[l];     // damage
 				tracker[m][2] = 1;
-				PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
+				m = players;
+				//PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
 			}
 		}
 	}
+
+	
+	
 	
 	// how many winners
-	new winners = 0;
-	for (new k = 0; k < players - 1; k++) {
-		if (damage[k] == damage[k+1]) {
+	new winners = 1;
+	for (new k = 1; k < players; k++) {
+		if (orderedInfo[0][1] == 4000) {
+			winners = 1;
+			break;
+		}
+		else if (orderedInfo[0][1] == orderedInfo[k][1]) {
 			winners++;
 		}
 	}
 	
 	// display data
+	if(winners == players) {
+		PrintToChatAll("\x03[WINNER WINNER CHICKEN DINNER]");
+	}
 	
 	for (new j = 0; j < players; j++) {
 		percent = (float(orderedInfo[j][1]) / float(maxHealth))* 100.00;
-		if (j == 0) {
-			PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+		
+		if (j == 0) { // first one
+			if (orderedInfo[j][1],percent == 100) {
+				PrintToChatAll("\x03[ULTIMATE NINJA] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+			}
+			else {
+				PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+			}
 		}
 		else {
-			if (j < winners) {
+			if ((j < winners) && (winners > 1)) {
 				PrintToChatAll("\x03[WINNER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
 			}
 			else if ( j == (players-1)) {
-				PrintToChatAll("\x03[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				if (orderedInfo[j][1] == 0) {
+					PrintToChatAll("\x01[NOOBTASTIC] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				}
+				else {
+					PrintToChatAll("\x01[LOSER] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				}
 			}
 			else {
-				PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				if (orderedInfo[j][1] == 0) {
+					PrintToChatAll("\x01[NOOBTASTIC] \x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				}
+				else {
+					PrintToChatAll("\x04%N \x01%d Damage \x05(%3.0f%%)", orderedInfo[j][0], orderedInfo[j][1],percent);
+				}
 			}
 		}
 	}
@@ -1274,6 +1402,8 @@ bool:ResetStatsByClient(client) {
 		survivor[client]          = false;
 		survivorHeadShots[client] = 0;
 		survivorFFDmg[client]     = 0;
+		survivorName[client]      = "";
+		survivorSteamID[client]   = "";
 		for (new i = 0; i < MaxClients; i++) {
 			if (i < 8) {
 				survivorKills[client][i] = 0;
@@ -1309,7 +1439,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 
 			// if (team == TEAM_SURVIVOR && !IsFakeClient(i)) {
 				// go through the 8 different types of infected (7 SI, 1 common)
-		if (survivor[i]) {
+		if (IsClientSurvivor(i)) {
 			for (new j = 0; j < 8; j++) {
 				total_kills_array[j] += survivorKills[i][j];
 				total_damage_array[j] += survivorDmg[i][j];
@@ -1323,7 +1453,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 // This function returns the client index that corresponds to a given name (string)
 GetSurvivorByName(String:name[33]) {
 	for (new i = 1; i < MaxClients; i++) {
-		if ((IsClientAlive(i)) && (GetClientTeam(i) == TEAM_SURVIVOR)) {
+		if (IsClientSurvivor(i)) {
 			new String:clientName[33];
 			GetClientName(i, clientName, sizeof(clientName));
 			if (StrContains(clientName, name, false) == 0) {
