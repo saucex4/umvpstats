@@ -48,7 +48,7 @@
 #define MAXENTITIES 2048
 #define DEBUG 0
 // when this is 1, debug output displayed for the infected hurt event
-#define INFECTED_HURT_DEBUG 0
+#define INFECTED_HURT_DEBUG 1
 
 /* [2.000]***************PLUGIN INFORMATION*************** */
 public Plugin:myinfo = {
@@ -79,9 +79,9 @@ new const TEAM_INFECTED   = 3;
 // Constants for different CI model ids-------------
 // NOTE: Works for survival mode only. In the future, check the cvar
 // BIO_ZOMBIE, CONSTRUCTION_ZOMBIE, CLOWN_ZOMBIE, SURVIVOR_ZOMBIE, RIOT_ZOMBIE
-new const NUM_SPECIAL_ZOMBIES = 5;
-new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232};
-new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50};
+new const NUM_SPECIAL_ZOMBIES = 6;
+new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232,212};
+new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50,1000};
 new const DEFAULT_HP = 50;
 
 // Left 4 Dead 2 weapon names-----------------------
@@ -286,6 +286,7 @@ public Action:Command_PrintClients(client,args) {
 			PrintToChatAll("[%d] %N",i,i);
 		}
 	}
+	return Plugin_Handled;
 }
 
 public Action:Command_PrintClientByName(client, args) {
@@ -311,6 +312,7 @@ public Action:Command_PrintClientByName(client, args) {
 	else {
 		PrintToChatAll("%s not found",arg1);
 	}
+	return Plugin_Handled;
 }
 
 public Action:Command_PrintClientByIndex(client, args) {
@@ -320,6 +322,7 @@ public Action:Command_PrintClientByIndex(client, args) {
 	if (IsClientAlive(clientIndex)) {
 		PrintToChatAll("client[%d] = %N",clientIndex,clientIndex);
 	}
+	return Plugin_Handled;
 }
 
 public Action:Command_PrintSurvivor(client, args) {
@@ -328,14 +331,17 @@ public Action:Command_PrintSurvivor(client, args) {
 			PrintToChatAll("[%d] %N",i,i);
 		}
 	}
+	return Plugin_Handled;
 }
 
 public Action:Command_StatsOn(client, args) {
 	collectStats = true;
+	return Plugin_Handled;
 }
 
 public Action:Command_StatsOff(client, args) {
 	collectStats = false;
+	return Plugin_Handled;
 }
 
 //--------------------------------------------------
@@ -359,6 +365,7 @@ public Action:Command_ResetStats(client, args) {
 	if (IsClientHuman(client)) {
 		PrintToChat(client,"\x01Stats have been \x04RESET");
 	}
+	return Plugin_Handled;
 }
 
 /* [7.000]***************CONSOLE COMMAND FUNCTIONS*************** */
@@ -435,6 +442,7 @@ public Action:Command_Stats(client, args) {
 			PrintStats(client,client,false); // print personal stats summarized
 		}
 	}
+	return Plugin_Handled;
 }
 
 
@@ -699,7 +707,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 #if INFECTED_HURT_DEBUG
 		//debug
-		PrintToChatAll("entID: %d CIHealth: %d damage: %d realdamage: %d hitgroup: %d type: %d", victim, CIHealth[victim], damage, realdamage, hitgroup, GetEventInt(event, "type"));
+		PrintToChatAll("entID: %d CIHealth: %d damage: %d realdamage: %d hitgroup: %d type: %d modelid: %d", victim, CIHealth[victim], damage, realdamage, hitgroup, GetEventInt(event, "type"),model_id);
 #endif
 
 	}
@@ -820,7 +828,7 @@ public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadc
 		
 		new String:playerName[33];
 		new String:playerSteamID[20];
-		GetClientName(player, botName, sizeof(botName));
+		GetClientName(player, playerName, sizeof(playerName));
 		GetClientAuthString(player, playerSteamID, sizeof(playerSteamID));
 		
 		StopStatsForClient(bot);
