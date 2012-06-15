@@ -192,13 +192,13 @@ public OnPluginStart() {
 	
 	// events to hook into
 	HookEvent("player_hurt", Event_PlayerHurt);
-	// HookEvent("player_death", Event_PlayerDeath);
+	// HookEvent("player_death", Event_PlayerDeath); // not needed
 	HookEvent("player_spawn", Event_PlayerSpawn);
 	HookEvent("infected_hurt", Event_InfectedHurt);
 	HookEvent("infected_death", Event_InfectedDeath);
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
-	// HookEvent("player_first_spawn", Event_PlayerFirstSpawn);
+	// HookEvent("player_first_spawn", Event_PlayerFirstSpawn); //replaced with player_spawn
 	HookEvent("player_disconnect", Event_PlayerDisconnect);
 	HookEvent("player_bot_replace", Event_PlayerBotReplace);
 	HookEvent("bot_player_replace", Event_BotPlayerReplace);
@@ -220,7 +220,6 @@ public OnPluginStart() {
 	
 	// check if plugin was loaded late
 	if (loadLate) {
-		
 		for (new i = 0 ; i < MaxClients; i++) {
 			if (IsClientSurvivor(i)) { // collect stats for the survivors
 				StartStatsForClient(i);
