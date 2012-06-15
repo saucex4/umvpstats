@@ -153,6 +153,24 @@ new const String:GAME_MODES[][64] = {
 	"survival"
 };
 
+
+// some gamestate variables from the roundstatetracker plugin that I made
+// I'm putting this here temporarily...
+new const NUM_ROUNDSTATES = 11;
+new const String:ROUND_STATES[][30] = {
+	"mapstarted", // 0
+	"mapended",   // 1             
+	"roundfreezeend", // 2
+	"roundstartpreentity", // 3
+	"roundstartpostnav", // 4
+	"roundend", // 5
+	"scavengeroundstart", // 6
+	"scavengeroundhalftime", // 7
+	"scavengeroundfinished", // 8
+	"versusroundstart", // 9
+	"survivalroundstart" // 10
+};
+
 /* [4.000]***************GLOBAL VARIABLES*************** */
 
 // global variables that track survivor data
@@ -187,6 +205,10 @@ new roundEnded = false;
 new collectStats = false;
 new loadLate     = false;
 
+// cvar handles
+
+new Handle:g_roundTrackerState = INVALID_HANDLE;
+
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
 	
@@ -218,6 +240,10 @@ public OnPluginStart() {
 	// Console/User commands - these are usable by all users
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
 	
+	
+	// cvar processing
+	g_roundTrackerState = FindConVar("g_roundTrackerState");
+	
 	// check if plugin was loaded late
 	if (loadLate) {
 		for (new i = 0 ; i < MaxClients; i++) {
@@ -225,7 +251,13 @@ public OnPluginStart() {
 				StartStatsForClient(i);
 			}
 		}
-		if (GameRules_GetRoundState() == RoundState_RoundRunning) { // if the game is running make sure stats can be collected
+		new String:roundState[30];
+		GetConVarString(g_roundTrackerState,roundState, sizeof(roundState));
+		
+		if (StrEqual(ROUND_STATES[10],roundState,false) ||
+		    StrEqual(ROUND_STATES[9],roundState,false) ||
+			StrEqual(ROUND_STATES[7],roundState,false) ||
+			StrEqual(ROUND_STATES[6],roundState,false)) { // if the game is running make sure stats can be collected
 			collectStats = true;
 		}
 	}
