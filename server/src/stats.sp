@@ -47,6 +47,8 @@
 
 #define MAXENTITIES 2048
 #define DEBUG 0
+// when this is 1, debug output displayed for the infected hurt event
+#define INFECTED_HURT_DEBUG 0
 
 /* [2.000]***************PLUGIN INFORMATION*************** */
 public Plugin:myinfo = {
@@ -137,13 +139,14 @@ new const String:WEAPON_NAMES[][64] =
 };
 
 //! \brief These are the sniper weapons that can instantly kill a common infected in normal difficulty
-new const NUM_INSTAKILL_WEAPONS = 4;
+new const NUM_INSTAKILL_WEAPONS = 5;
 new const String:INSTAKILL_WEAPONS[][64] =
 {
 	"weapon_sniper_awp",
 	"weapon_sniper_military",
 	"weapon_sniper_scout",
-	"weapon_hunting_rifle"
+	"weapon_hunting_rifle",
+	"weapon_chainsaw"
 };
 
 // This array of game modes is a list of gamemodes that the plugin is compatible with.
@@ -609,6 +612,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	// retrieve the damage and hitgroup
 	new damage = GetEventInt(event, "amount");
 	new hitgroup = GetEventInt(event, "hitgroup");
+	new type = GetEventInt(event, "type");
 	new realdamage;
 	new model_id;
 	decl String:weapon[64];
@@ -631,6 +635,9 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 			}
 		}
 
+		// if the CIHealth for some reason is over the max, adjust it
+		CIHealth[victim] = CIHealth[victim] % maxhp;
+
 		new bool:instakill_weapon = false;
 
 		// run through all the instakill weapons and check
@@ -640,12 +647,23 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 			}
 		}
 
-		// if the damage is 1 (due to fire), modify the damage to a killing blow.
+		// Make sure not fire dmg (8 or 2056)
 		// Also check to see if the shot was a headshot. If the shot was a headshot, the damage should be modified so that the shot is a killing blow. Exception: survivor zombie (ID 283).
 		// As well, check if it is an insta-kill weapon, which will destroy the zombie in one shot regardless of the hitgroup.
-		if ((damage == 1 || GetEventInt(event, "hitgroup") == 1 || instakill_weapon == true) && model_id != 283) {
+		if ((type != 2056 && type != 8) && (GetEventInt(event, "hitgroup") == 1 || instakill_weapon == true) && model_id != 283) {
 			damage = maxhp;
 		}
+		// if the damage is 0 (due to fire), modify the damage to a killing blow.
+		// fire damage is type 2056 or type 8
+		if (type == 2056 || type == 8)
+		{
+			// if the zombie is biohazard (440) however, zero damage applied
+			if (model_id == 440)
+				damage = 0;
+			else
+				damage = maxhp;
+		}
+
 
 		// Now check the zombie's remaining health. If the health value in the zombie health array is zero, we assume the zombie was at full health before the damage was dealt.
 		if (CIHealth[victim] <= 0) {
@@ -675,6 +693,11 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		if (hitgroup == 1) {
 			survivorHeadShots[attacker]++;
 		}
+
+#if INFECTED_HURT_DEBUG
+		//debug
+		PrintToChatAll("entID: %d CIHealth: %d damage: %d realdamage: %d hitgroup: %d type: %d", victim, CIHealth[victim], damage, realdamage, hitgroup, GetEventInt(event, "type"));
+#endif
 
 	}
 }
