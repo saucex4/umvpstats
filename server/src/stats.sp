@@ -264,6 +264,10 @@ public OnPluginStart() {
 	
 }
 
+public OnMapStart() {
+	collectStats = false;
+}
+
 // This function is called before OnPluginStart. This is to check for late load
 
 public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max) {
@@ -345,7 +349,6 @@ public Action:Command_ResetStats(client, args) {
 		}
 		survivorHeadShots[i] = 0; // zero out headshot count
 		survivorFFDmg[i] = 0;     // zero out friendly fire damage
-		StopStatsForClient(i);      // zero out all tracked survivors
 		SIClients[i] = false;     // zero out all tracked SI
 		SIHealth[i]  = 0;         // zero out all tracked SI health
 	}
