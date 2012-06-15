@@ -78,10 +78,20 @@ new const TEAM_INFECTED   = 3;
 
 // Constants for different CI model ids-------------
 // NOTE: Works for survival mode only. In the future, check the cvar
-// BIO_ZOMBIE, CONSTRUCTION_ZOMBIE, CLOWN_ZOMBIE, SURVIVOR_ZOMBIE, RIOT_ZOMBIE
-new const NUM_SPECIAL_ZOMBIES = 6;
-new const SPECIAL_ZOMBIE_ID[] =  {440, 256, 197, 283, 232,212};
-new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 1000, 50,1000};
+// BIO_ZOMBIE (Port Sacrifice)           270
+// BIO_ZOMBIE (Traincar)                 440
+// CONSTRUCTION_ZOMBIE (sugar mill)      256
+// CONSTRUCTION_ZOMBIE (burger tank)     309
+// CLOWN_ZOMBIE (Concert)                197
+// CLOWN_ZOMBIE (Stadium gate)           259
+// RIOT_ZOMBIE                           232
+// SURVIVOR_ZOMBIE (riverbank)           212
+// SURVIVOR_ZOMBIE (underground)         283
+
+// witch 253 (unused for now)
+new const NUM_SPECIAL_ZOMBIES = 9;
+new const SPECIAL_ZOMBIE_ID[] =  {270, 440, 256, 309, 197, 259, 232, 212, 283};
+new const SPECIAL_ZOMBIE_HP[] =  {150, 150, 150, 150, 150, 150, 50, 1000, 1000};
 new const DEFAULT_HP = 50;
 
 // Left 4 Dead 2 weapon names-----------------------
@@ -448,12 +458,6 @@ public Action:Command_Stats(client, args) {
 
 /* [8.000]***************EVENT CALLBACK FUNCTIONS*************** */
 
-//--------------------------------------------------
-// Event_InfectedHurt
-//!
-//! \brief     This calculates the damage done to common infected.
-//! \details   Part of the complications in the calculation is due to the fact that real damage is not shown. Example: A weapon might do 90 damage but the zombie has only 10 health remaining. The actual damage should be 10, but the recorded amount is 90. To compensate for this, the common health are tracked in an array and the real damage is updated accordingly.
-//--------------------------------------------------
 
 // Infected Events
 public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
@@ -604,6 +608,13 @@ public Event_PlayerHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	
 }
 
+//--------------------------------------------------
+// Event_InfectedHurt
+//!
+//! \brief     This calculates the damage done to common infected.
+//! \details   Part of the complications in the calculation is due to the fact that real damage is not shown. Example: A weapon might do 90 damage but the zombie has only 10 health remaining. The actual damage should be 10, but the recorded amount is 90. To compensate for this, the common health are tracked in an array and the real damage is updated accordingly.
+//--------------------------------------------------
+
 public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast) {
 	//--------------------------------------------------
 	// Local Variables:
@@ -622,6 +633,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 	// retrieve the damage and hitgroup
 	new damage = GetEventInt(event, "amount");
+	new original_damage = damage;
 	new hitgroup = GetEventInt(event, "hitgroup");
 	new type = GetEventInt(event, "type");
 	new realdamage;
@@ -675,6 +687,11 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 				damage = maxhp;
 		}
 
+		// Special case: survivor zombies (model ids 212 and 283) use the original damage. Change this back except for headshots.
+		if ((model_id == 212 || model_id == 283) && hitgroup != 1)
+		{
+			damage = original_damage;
+		}
 
 		// Now check the zombie's remaining health. If the health value in the zombie health array is zero, we assume the zombie was at full health before the damage was dealt.
 		if (CIHealth[victim] <= 0) {
@@ -707,7 +724,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 #if INFECTED_HURT_DEBUG
 		//debug
-		PrintToChatAll("entID: %d CIHealth: %d damage: %d realdamage: %d hitgroup: %d type: %d modelid: %d", victim, CIHealth[victim], damage, realdamage, hitgroup, GetEventInt(event, "type"),model_id);
+		PrintToChatAll("entID: %d CIHealth: %d original_damage: %d damage: %d realdamage: %d hitgroup: %d type: %d modelid: %d", victim, CIHealth[victim], original_damage, damage, realdamage, hitgroup, GetEventInt(event, "type"),model_id);
 #endif
 
 	}
@@ -716,6 +733,8 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 	//attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	// Ensure that the infected health is set to zero. This should be the case in almost all situations, however, the survivor zombie has some weird damage properties that causes it to show up having health remaining even though it is dead.
+	CIHealth[GetEventInt(event, infected_id)] = 0;
 	
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (IsClientSurvivor(attacker) && collectStats)
