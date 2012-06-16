@@ -2,11 +2,12 @@
 
 #include <sourcemod>
 
-#define S3_MAXPLAYERS 255
+#define S3_MAXPLAYERS 100
 
 new String:g_playerName[S3_MAXPLAYERS][33];
 new String:g_playerSteamID[S3_MAXPLAYERS][20];
 new bool:g_playerActive[S3_MAXPLAYERS];
+new g_playerTimestamp[S3_MAXPLAYERS];
 
 new g_survivorKills[S3_MAXPLAYERS][8]; // stores the kills for each survivor for each SI type
 new g_survivorDmg[S3_MAXPLAYERS][8];   // stores the dmg for each survivor for each SI type
@@ -17,7 +18,25 @@ new g_infectedKills[S3_MAXPLAYERS]; // stores the kills for each SI
 new g_infectedDmg[S3_MAXPLAYERS]; // stores the damage for each SI
 new g_infectedFFDmg[S3_MAXPLAYERS]; // stores FF damage for each SI
 
+new g_playerNextAvailableSpot = 0;
 
+GetNewPlayerID() {
+	if (IsPlayerTableFull()) {
+		for ( new i = 0; i < S3_MAXPLAYERS; i++) {
+			if (!g_playerActive[i]) {
+				return i;
+			}
+		}
+	}
+	return g_playerNextAvailableSpot;
+}
+
+bool:IsPlayerTableFull() {
+	if (g_playerNextAvailableSpot == S3_MAXPLAYERS) {
+		return true;
+	}
+	return false;
+}
 
 IsPlayerActive(client) {
 	new playerID = -1;
