@@ -21,13 +21,10 @@ new g_infectedFFDmg[S3_MAXPLAYERS]; // stores FF damage for each SI
 
 IsPlayerActive(client) {
 	new playerID = -1;
-	if (IsClientBot(client)) {
-		playerID = GetBotPlayerIDByClient(client);
-	}
-	else if (IsClientHuman(client)) {
+	if (IsClientAlive(client)) {
 		playerID = GetPlayerIDByClient(client);
-		
 	}
+	
 	if (playerID != -1) {
 		return g_playerActive[playerID];
 	}
