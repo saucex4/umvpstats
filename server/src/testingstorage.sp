@@ -29,18 +29,19 @@ GetNewPlayerID(client) {
 	if (IsPlayerTableFull()) {
 		for ( new i = 0; i < S3_MAXPLAYERS; i++) {
 			if (!IsPlayerIDActive(i)) {
+				// delete current date
 				return i; // if there is an inactive player then give that spot
+			}
+			else {
+				return -1; // basically cannot record anymore players
 			}
 		}
 	}
-	else if (!IsPlayerTableFull()) {
+	else {
 		new newPlayerID = GetNextAvailablePlayerID();
 		EnablePlayerID(newPlayerID);
 		MoveNextAvailablePlayerID();
 		return newPlayerID; // if the player table is not full then return the next spot
-	}
-	else {
-		return -1; // basically cannot record anymore players
 	}
 }
 
