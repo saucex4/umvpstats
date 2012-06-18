@@ -49,8 +49,10 @@
 #define MAXENTITIES 2048
 #define S3_MAXPLAYERS 150 // maximum amount of players to track data for
 #define DEBUG 0
+#define DEBUG_MVP 0
 // when this is 1, debug output displayed for the infected hurt event
 #define INFECTED_HURT_DEBUG 0
+
 
 /* [2.000]***************PLUGIN INFORMATION*************** */
 public Plugin:myinfo = {
@@ -1010,7 +1012,7 @@ PrintStats(printToClient, option, bool:detail) {
 			*/
 			/*
 				Rank players by performance
-				Rank tank damage
+				Rank tank damagew
 				Rank SI kills
 				Rank CI kills
 				calculate total damage
@@ -1022,7 +1024,10 @@ PrintStats(printToClient, option, bool:detail) {
 				if (IsPlayerSurvivor(i)) {
 					playerID[players] = i;
 					players++;
-				}
+#if DEBUG_MVP
+					PrintToChatAll("players = %d, playerID = %d",players, i); //  --------------------------------------------- DEBUG
+#endif
+					}
 			}
 			
 			// Rate Players
@@ -1033,6 +1038,10 @@ PrintStats(printToClient, option, bool:detail) {
 				playerRating[j] = RatePerformance(GetTotalDamageByPlayer(playerID[j],TANK), GetTotalSIKills(playerID[j]), GetTotalKillsByPlayer(playerID[j],COMMON));
 				ratingTracker[j][0] = playerID[j];
 				ratingTracker[j][1] = playerRating[j];
+				ratingTracker[j][2] = 0;
+#if DEBUG_MVP
+				PrintToChatAll("ratingTracker[%d][0] = %d,ratingTracker[%d][1] = %d",j,ratingTracker[j][0],j,ratingTracker[j][1]); //  --------------------------------------------- DEBUG
+#endif
 			}
 			
 			SortIntegers(playerRating, players, Sort_Descending);
@@ -1040,6 +1049,13 @@ PrintStats(printToClient, option, bool:detail) {
 			// sort damage and clientID
 			new orderedInfo[players][7]; // 0 id, 1 tank damage, 2 si kills, 3 ci kills, 4 tank rank, 5 si rank, 6 ci rank
 			for (new m = 0; m < players; m++) {
+				
+				for (new r = 0; r < 7; r++) {
+					orderedInfo[m][r] = 0;
+				}
+#if DEBUG_MVP
+				PrintToChatAll("playerRating[%d] = %d",m,playerRating[m]);
+#endif			
 				for (new n = 0; n < players; n++) {
 					if ((playerRating[m] == ratingTracker[n][1]) && (ratingTracker[n][2] == 0)) {
 						orderedInfo[m][0] = ratingTracker[n][0]; // playerID
@@ -1047,8 +1063,10 @@ PrintStats(printToClient, option, bool:detail) {
 						orderedInfo[m][2] = GetTotalSIKills(ratingTracker[n][0]); // SI kills
 						orderedInfo[m][3] = GetTotalKillsByPlayer(ratingTracker[n][0],COMMON); // CI kills
 						ratingTracker[n][2] = 1;
+#if DEBUG_MVP						
+						PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, orderedInfo[%d][2] = %d, orderedInfo[%d][3] = %d, ",m,orderedInfo[m][0],m,orderedInfo[m][1],m,orderedInfo[m][2],m,orderedInfo[m][3]);
+#endif
 						n = players;
-						//PrintToChatAll("orderedInfo[%d][0] = %d, orderedInfo[%d][1] = %d, tracker[%d][2] = %d",l,orderedInfo[l][0],l,orderedInfo[l][1],m,tracker[m][2]);
 					}
 				}
 			}
@@ -1060,7 +1078,9 @@ PrintStats(printToClient, option, bool:detail) {
 					winners++;
 				}
 			}
-			
+#if DEBUG_MVP
+			PrintToChatAll("winners = %d", winners);
+#endif
 			// Percent processing
 			new Float:percent[players][3];
 			for (new x = 0; x < players; x++) {
@@ -1070,27 +1090,43 @@ PrintStats(printToClient, option, bool:detail) {
 				else {
 					percent[x][2] =(float(orderedInfo[x][3])/float(GetTotalKills(COMMON)))* 100.00;
 				}
-				
+#if DEBUG_MVP
+				 PrintToChatAll("percent[%d][2] = %f",x, percent[x][2]);
+#endif				 
 				if(totalSIKills == 0) {
 					percent[x][1] = 0.0;
 				}
 				else {
 					percent[x][1] =(float(orderedInfo[x][2])/float(totalSIKills))* 100.00;
 				}
-				
-				if (GetTotalKills(TANK) == 0) {
+#if DEBUG_MVP
+				 PrintToChatAll("percent[%d][1] = %f",x, percent[x][1]);
+#endif
+				if (GetTotalDamage(TANK) == 0) {
 					percent[x][0] = 0.0;
 				}
 				else {
-					percent[x][0] = ((float(orderedInfo[x][1])/float(GetTotalKills(TANK)))* 100.00);
+					percent[x][0] = (float(orderedInfo[x][1])/float(GetTotalDamage(TANK)))* 100.00;
 				}
-			}
+#if DEBUG_MVP
+				PrintToChatAll("percent[%d][0] = %f",x, percent[x][0]);
+#endif
+				}
 			
 			// rank processing
 			new orderedTankDamage[players];
 			new orderedSIKills[players];
 			new orderedCIKills[players];
 			new infoTracker[players][3]; // 0 tank, 1 si, 3 ci
+			
+			for (new s = 0; s < players; s++) {
+				orderedTankDamage[s] = 0;
+				orderedSIKills[s] = 0;
+				orderedCIKills[s] = 0;
+				infoTracker[s][2] = 0;
+				infoTracker[s][1] = 0;
+				infoTracker[s][0] = 0;
+			}
 			
 			
 			// copy data
@@ -1180,18 +1216,18 @@ PrintStats(printToClient, option, bool:detail) {
 				}
 				if (printToClient == 0) {
 					if (l == 0 || (l < winners)) {
-						PrintToChatAll("\x05[MVP] \x04%13s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%% ",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
+						PrintToChatAll("\x05[MVP] \x01%13s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%% ",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
 					}
 					else {
-						PrintToChatAll("\x04%17s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
+						PrintToChatAll("\x01%17s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
 					}
 				}
 				else {
 					if (l == 0 || (l < winners)) {
-						PrintToChat(printToClient,"\x05[MVP] \x04%13s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
+						PrintToChat(printToClient,"\x05[MVP] \x01%13s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
 					}
 					else {
-						PrintToChat(printToClient,"\x04%17s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
+						PrintToChat(printToClient,"\x01%17s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%%",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
 					}
 				}
 
@@ -1392,13 +1428,14 @@ PrintTankStats(victimPID) {
 				3name56789012345678901234567890 XXXX Damage (XXX%)
 				4name56789012345678901234567890 XXXX Damage (XXX%)
 				*/
-				damage[players]     = GetDamageToTank(i,victimPID);
-				tracker[players][0] = i;
-				tracker[players][1] = GetDamageToTank(i,victimPID);
-				tracker[players][2] = 0;
-				players++;
+				if (!((GetDamageToTank(i,victimPID) == 0) && !IsPlayerActive(i))) {
+					damage[players]     = GetDamageToTank(i,victimPID);
+					tracker[players][0] = i;
+					tracker[players][1] = GetDamageToTank(i,victimPID);
+					tracker[players][2] = 0;
+					players++;
 				//PrintToChatAll("survivorDmgToTank[i][victim] = %d, i = %d",survivorDmgToTank[i][victim], i);
-			
+				}
 			}
 		}
 		
@@ -1420,8 +1457,6 @@ PrintTankStats(victimPID) {
 		}
 
 		
-		
-		
 		// how many winners
 		new winners = 1;
 		for (new k = 1; k < players; k++) {
@@ -1440,17 +1475,19 @@ PrintTankStats(victimPID) {
 		}
 		
 		for (new j = 0; j < players; j++) {
+			
 			percent = (float(orderedInfo[j][1]) / float(maxHealth))* 100.00;
 			new String:name[20];
-			new client = GetClientOfPlayerID(j);
+			new client = GetClientOfPlayerID(orderedInfo[j][0]);
 			if (client == -1) {
-				strcopy(name, 20, g_playerName[j]);
+				strcopy(name, 20, g_playerName[orderedInfo[j][0]]);
 			}
 			else if ((client > 0) && (client < MaxClients)) {
 				GetClientName(client,name,sizeof(name));
 			}
+			
 			if (j == 0) { // first one
-				if (orderedInfo[j][1],percent == 100) {
+				if (percent == 100) {
 					PrintToChatAll("\x03[ULTIMATE NINJA] \x04%s \x01%d Damage \x05(%3.0f%%)", name, orderedInfo[j][1],percent);
 				}
 				else {
