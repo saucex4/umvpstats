@@ -32,9 +32,6 @@ GetNewPlayerID(client) {
 				// delete current date
 				return i; // if there is an inactive player then give that spot
 			}
-			else {
-				return -1; // basically cannot record anymore players
-			}
 		}
 	}
 	else {
@@ -43,6 +40,7 @@ GetNewPlayerID(client) {
 		MoveNextAvailablePlayerID();
 		return newPlayerID; // if the player table is not full then return the next spot
 	}
+	return -1; //basically nothing more can be recorded
 }
 
 // this gets a playerID by specifiying a client index
