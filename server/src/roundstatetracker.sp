@@ -2,7 +2,7 @@
 
 #include <sourcemod>
 
-new Handle:g_roundState = INVALID_HANDLE;
+new Handle:g_roundTrackerState = INVALID_HANDLE;
 
 public Plugin:myinfo = {
 		   name = "Round State Tracker",
@@ -23,7 +23,7 @@ public OnPluginStart() {
 	HookEvent("versus_round_start",Event_VersusRoundStart);
 	HookEvent("survival_round_start",Event_SurvivalRoundStart);
 	
-	g_roundState = CreateConVar("g_roundState","nothing","What is the current state of the round");
+	g_roundTrackerState = CreateConVar("s3_roundTrackerState","nothing","What is the current state of the round");
 }
 
 public OnMapStart() {
@@ -71,5 +71,5 @@ public Event_SurvivalRoundStart(Handle:event, const String:name[], bool:dontBroa
 }
 
 SetGameRoundState(const String:roundState[]) {
-	SetConVarString(g_roundState, roundState);
+	SetConVarString(g_roundTrackerState, roundState);
 }
