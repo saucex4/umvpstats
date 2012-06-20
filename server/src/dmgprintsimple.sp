@@ -1250,6 +1250,7 @@ AddGameClient(client, String:steamid[], model_id, birth_time, death_time)
 		{
 			game_client_id = SQL_FetchInt(result, 0);
 		}
+		CloseHandle(result);
 	}
 	SQL_UnlockDatabase(test_db_sqlite);
 

@@ -21,6 +21,7 @@
 *			  7.000 CONSOLE COMMAND FUNCTIONS
 *			  8.000 EVENT CALLBACK FUNCTIONS
 *             9.000 HELPER FUNCTIONS
+*            10.000 DATABASE FUNCTIONS
 * 
 * Features to add: Granular Weapon Stats (requested by phoenix)
 *                  Headshot % not count (requested by sauce)
@@ -192,7 +193,54 @@ new const String:ROUND_STATES[][30] = {
 	"survivalroundstart" // 10
 };
 
+// Constants for map names--------------------------
+new const NUM_OFFICIAL_MAPS_2 = 17;
+new String:OFFICIAL_MAPS_2[][64] =
+{
+	"c1m4_atrium",
+	"c2m1_highway",
+	"c2m4_barns",
+	"c2m5_concert",
+	"c3m1_plankcountry",
+	"c3m4_plantation",
+	"c4m1_milltown_a",
+	"c4m2_sugarmill",
+	"c5m2_park",
+	"c5m5_bridge",
+	"c6m1_riverbank",
+	"c6m2_bedlam",
+	"c6m3_port",
+	"c7m1_docks",
+	"c7m3_port",
+	"c8m2_subway",
+	"c8m5_rooftop"
+};
+
+//! These are the human-readable map names and also the names that are stored in the survival records database - do not change
+new String:OFFICIAL_MAP_NAMES_2[][64] =
+{
+	"Mall Atrium",
+	"Motel",
+	"Stadium Gate",
+	"Concert",
+	"Gator Village",
+	"Plantation",
+	"Burger Tank",
+	"Sugar Mill",
+	"Bus Depot",
+	"Bridge",
+	"Riverbank",
+	"Underground",
+	"Port (P)",
+	"Traincar",
+	"Port (S)",
+	"Generator Room",
+	"Rooftop"
+};
+
 /* [4.000]***************GLOBAL VARIABLES*************** */
+
+new Handle:survival_records_db = INVALID_HANDLE; //!< This is the SQLite database that contains the survival records
 
 // global variables that track survivor data
 new String:g_playerName[S3_MAXPLAYERS][33];    // stores player name
@@ -269,6 +317,8 @@ public OnPluginStart() {
 		RegAdminCmd("sm_tankstatsoff", Command_TankStatsOff, ADMFLAG_GENERIC);
 		// Console/User commands - these are usable by all users
 		RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
+		RegConsoleCmd("sm_top10", Command_Top10);
+		RegConsoleCmd("sm_top_stats", Command_Top10);
 		
 		// cvar processing
 		cv_roundTrackerState = FindConVar("s3_roundTrackerState");
@@ -305,6 +355,12 @@ public OnPluginStart() {
 			}
 		}
 	}
+
+	ConnectSurvivalStatsDB();
+}
+
+public OnPluginEnd() {
+	CloseHandle2(survival_records_db);
 }
 
 public OnMapStart() {
@@ -513,7 +569,31 @@ public Action:Command_Stats(client, args) {
 	return Plugin_Handled;
 }
 
+//--------------------------------------------------
+//! \brief Gets the top 10 statistic for the current map and displays it to the user.
+//! \details The statistics are retrived from the survival_records sqlite database.
+//--------------------------------------------------
+public Action:Command_Top10(client, args)
+{
+	decl String:mname[64];
 
+	// get the current map name
+	GetCurrentMap(mname, sizeof(mname));
+	PrintToChat(client, "Searching for map %s...", mname);
+
+	// find the human-readable name of the map from the list of official maps
+	for (new i = 0; i < NUM_OFFICIAL_MAPS_2; i++)
+	{
+		if (StrEqual(OFFICIAL_MAPS_2[i], mname))
+		{
+			PrintToChat(client, "Found %s", OFFICIAL_MAP_NAMES_2[i]);
+			PrintTop10Times(client, OFFICIAL_MAP_NAMES_2[i], 10);
+			return Plugin_Handled;
+		}
+	}
+
+	return Plugin_Handled;
+}
 
 /* [8.000]***************EVENT CALLBACK FUNCTIONS*************** */
 
@@ -2130,4 +2210,185 @@ MoveNextAvailablePlayerID() {
 
 GetNextAvailablePlayerID() {
 	return g_playerNextAvailableSpot;
+}
+
+//--------------------------------------------------
+//! \brief given a time in milliseconds, this function will store the string representation of the time in the buffer.
+//!
+//! \param[in] buf                 The buffer to store the output in
+//! \param[in] buflen              size of the buffer
+//! \param[in] total_milliseconds  The total milliseconds to convert
+//--------------------------------------------------
+display_time(String:buf[], buflen, total_milliseconds)
+{
+	new minutes = total_milliseconds / 1000 / 60;
+	new seconds = total_milliseconds / 1000 % 60;
+	new ms = total_milliseconds % 1000;
+
+	Format(buf, buflen, "%d:%02d:%02d", minutes, seconds, ms / 10);
+}
+
+
+/* [10.000]***************DATABASE FUNCTIONS********************* */
+CloseHandle2(&Handle:target) {
+	new bool:close_test = false;
+	
+	if(target != INVALID_HANDLE) {
+		close_test = CloseHandle(target);
+		if(close_test) {
+			target = INVALID_HANDLE;
+		}
+	}
+	
+	return close_test;
+}
+
+ConnectSurvivalStatsDB()
+{
+	decl String:error[256];
+
+	// connect to the test database (SQLite)
+	new Handle:keyval = CreateKeyValues("Survival Stats Database Connect");
+	KvSetString(keyval, "driver", "sqlite");
+	KvSetString(keyval, "host", "localhost");
+	KvSetString(keyval, "database", "survival_records");
+
+	// used to set the username and pw
+	//KvSetString(keyval, "user", "root");
+	//KvSetString(keyval, "pass", "");
+
+	CloseHandle2(survival_records_db);
+	survival_records_db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+	CloseHandle(keyval);
+}
+
+//--------------------------------------------------
+// PrintTop10Times
+//!
+//! \brief Queries the database for the top 10 times and prints it to chat.
+//!
+//! \param[in] client The client id to output to. Use -1 for print to all
+//! \param[in] map_name The map to print the top times out for. The map name should be one located in the OFFICIAL_MAP_NAMES_2 array.
+//! \param[in] The number of records to print out
+//!
+//! \returns true on success
+//--------------------------------------------------
+PrintTop10Times(client, String:map_name[], n)
+{
+	decl String:query[1024];
+
+	Format(query, sizeof(query), "SELECT Record2.id, Record2.time, Record2.date, Player.name FROM Map INNER JOIN Record2 ON Map.id == Record2.map_id INNER JOIN Team ON Team.record_id == Record2.id INNER JOIN Player ON Player.id == Team.player_id WHERE Map.name == \'%s\' ORDER BY Record2.time DESC, Player.name COLLATE NOCASE;", map_name);
+
+	new Handle:dataPack = CreateDataPack();
+	WritePackCell(dataPack, client);
+	WritePackCell(dataPack, n);
+	WritePackString(dataPack, map_name);
+
+	SQL_TQuery(survival_records_db, PostQueryPrintTop10Times, query, dataPack);
+}
+
+public PostQueryPrintTop10Times(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new const N = 3;
+	new Handle:dataPack = data;
+	decl String:buf[200];
+	decl String:buf2[200];
+	decl String:players[100];
+	decl String:player[100];
+	new record_id;
+	new ms;
+	decl String:date[32];
+	decl String:time_str[32];
+	decl String:map_name[100];
+	new prev_id = -1;
+	Format(buf, sizeof(buf), "");
+	Format(players, sizeof(players), "");
+	Format(player, sizeof(player), "");
+
+	// get the values out of the data pack
+	ResetPack(dataPack);
+	new client = ReadPackCell(dataPack);
+	new n = ReadPackCell(dataPack);
+	ReadPackString(dataPack, map_name, sizeof(map_name));
+	CloseHandle(dataPack);
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToChat(client, "Error Top10: %s", error);
+		return;
+	}
+
+	new count = 0;
+	new numplayers;
+
+	if (client > 0)
+		PrintToChat(client, "Top %d records for %s", n, map_name);
+
+	while (SQL_FetchRow(result))
+	{
+		if (prev_id == -1)
+			count++;
+
+		// get the record id, time, date, and name
+		record_id = SQL_FetchInt(result, 0);
+		ms = SQL_FetchInt(result, 1);
+		display_time(time_str, sizeof(time_str), ms);
+		SQL_FetchString(result, 2, date, sizeof(date));
+		SQL_FetchString(result, 3, player, sizeof(player));
+
+		// if the record_id is new,
+		if (record_id != prev_id && prev_id != -1)
+		{
+			// output the record
+			Format(buf, sizeof(buf), "%d) Time: %s Date: %s Players: %s", count, time_str, date, players);
+
+			if (count <= N)
+			{
+				Format(buf2, sizeof(buf2), "%d) %s -- %s", count, time_str, players);
+				if (client > 0)
+					PrintToChat(client, buf2);
+			}
+
+			if (client > 0)
+			{
+				PrintToConsole(client, buf);
+			}
+
+			// reset the players string
+			Format(players, sizeof(players), "");
+			numplayers = 0;
+
+			// increase the count
+			count++;
+			if (count > n)
+				break;
+		}
+		// concatenate player into the players string
+		if (numplayers > 0)
+			StrCat(players, sizeof(players), ", ");
+		StrCat(players, sizeof(players), player);
+		numplayers++;
+
+		prev_id = record_id;
+	}
+
+	// if count is smaller than n at this point, the last record didnt get printed, so print that out
+	if (count <= n)
+	{
+		// output the record
+		Format(buf, sizeof(buf), "Time: %s Date: %s Players: %s", time_str, date, players);
+
+		if (client > 0)
+		{
+			PrintToConsole(client, buf);
+		}
+	}
+
+	if (count <= N)
+	{
+		Format(buf2, sizeof(buf2), "%s -- %s", time_str, players);
+
+		if (client > 0)
+			PrintToChat(client, buf2);
+	}
 }
