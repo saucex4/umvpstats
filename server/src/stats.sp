@@ -202,7 +202,6 @@ new bool:g_playerActive[S3_MAXPLAYERS];        // if player is active or not
 new g_playerHealth[S3_MAXPLAYERS];
 new g_playerNextAvailableSpot = 0;             // the next available spot for new player
 new g_playerMaxHealth[S3_MAXPLAYERS];
-new g_playerRating[S3_MAXPLAYERS];
 
 new g_survivorKills[S3_MAXPLAYERS][9]; // stores the kills for each survivor for each SI type
 new g_survivorDmg[S3_MAXPLAYERS][9];   // stores the dmg for each survivor for each SI type
@@ -227,7 +226,7 @@ new CIHealth[MAXENTITIES];        // Tracks health of every common infected. Thi
 new g_roundEnded = false;
 new g_collectStats = false;
 new g_loadLate     = false;
-new g_printTankStats = false;
+new g_printTankStats = true;
 new String:g_gameMode[30];
 // cvar handles
 
@@ -327,10 +326,6 @@ public Action:Command_StatsOn(client, args) {
 		// enable stats collection
 		g_collectStats = true;
 		SetConVarInt(cv_collectStats, 1);
-		
-		// enable tank stats
-		g_printTankStats = true;
-		SetConVarInt(cv_printTankStats, 1);
 	}
 	return Plugin_Handled;
 }
@@ -340,10 +335,6 @@ public Action:Command_StatsOff(client, args) {
 		// disable stats collection
 		g_collectStats = false;
 		SetConVarInt(cv_collectStats, 0);
-		
-		// disable tank stats
-		g_printTankStats = true;
-		SetConVarInt(cv_printTankStats, 0);
 	}
 	return Plugin_Handled;
 }
@@ -891,9 +882,6 @@ public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadc
 /* [9.000]***************HELPER FUNCTIONS*************** */
 
 PrintStats(printToClient, option, bool:detail) {
-	// client2 values
-	// 100 = print mvp
-	//   0 = print all summarized stats
 	
 	new totalSIDamage = GetTotalDamage(HUNTER) + GetTotalDamage(JOCKEY) + GetTotalDamage(CHARGER) + GetTotalDamage(SPITTER) + GetTotalDamage(SMOKER) + GetTotalDamage(BOOMER);
 	new totalSIKills = GetTotalKills(HUNTER) + GetTotalKills(JOCKEY) + GetTotalKills(CHARGER) + GetTotalKills(SMOKER) + GetTotalKills(SPITTER) + GetTotalKills(BOOMER);
@@ -1744,7 +1732,7 @@ TotalDamage(total_damage_array[], total_kills_array[]) {
 GetSurvivorByName(String:name[33]) {
 	for (new i = 0; i < S3_MAXPLAYERS; i++) {
 		if (IsPlayerSurvivor(i)) {
-			if (StrContains(g_playerName[i], name, false) == 0) {
+			if (StrContains(g_playerName[i], name, false) != -1) {
 				return i;
 			}
 		}
