@@ -241,6 +241,7 @@ new String:OFFICIAL_MAP_NAMES_2[][64] =
 /* [4.000]***************GLOBAL VARIABLES*************** */
 
 new Handle:survival_records_db = INVALID_HANDLE; //!< This is the SQLite database that contains the survival records
+new Handle:survival_counts_db = INVALID_HANDLE; //!< This is the SQLite database that contains the item counts
 
 // global variables that track survivor data
 new String:g_playerName[S3_MAXPLAYERS][33];    // stores player name
@@ -316,6 +317,8 @@ public OnPluginStart() {
 		RegAdminCmd("sm_tankstatsoff", Command_TankStatsOff, ADMFLAG_GENERIC);
 		// Console/User commands - these are usable by all users
 		RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
+		RegConsoleCmd("sm_counts", Command_ItemCounts);
+		RegConsoleCmd("sm_item_counts", Command_ItemCounts);
 		RegConsoleCmd("sm_top10", Command_Top10);
 		RegConsoleCmd("sm_top_stats", Command_Top10);
 		
@@ -356,10 +359,12 @@ public OnPluginStart() {
 	}
 
 	ConnectSurvivalStatsDB();
+	ConnectSurvivalCountsDB();
 }
 
 public OnPluginEnd() {
 	CloseHandle2(survival_records_db);
+	CloseHandle2(survival_counts_db);
 }
 
 public OnMapStart() {
@@ -559,6 +564,31 @@ public Action:Command_Stats(client, args) {
 	}
 	return Plugin_Handled;
 }
+//--------------------------------------------------
+//! \brief Gets the item counts for the current map and displays it to the user.
+//! \details The statistics are retrived from the survival_counts sqlite database.
+//--------------------------------------------------
+public Action:Command_ItemCounts(client, args)
+{
+	decl String:mname[64];
+
+	// get the current map name
+	GetCurrentMap(mname, sizeof(mname));
+	PrintToChat(client, "Searching for map %s...", mname);
+
+	// find the human-readable name of the map from the list of official maps
+	for (new i = 0; i < NUM_OFFICIAL_MAPS_2; i++)
+	{
+		if (StrEqual(OFFICIAL_MAPS_2[i], mname))
+		{
+			PrintItemCounts(client, OFFICIAL_MAP_NAMES_2[i]);
+			return Plugin_Handled;
+		}
+	}
+
+	PrintToChat(client, "Map %s not found in the database", mname);
+	return Plugin_Handled;
+}
 
 //--------------------------------------------------
 //! \brief Gets the top 10 statistic for the current map and displays it to the user.
@@ -577,12 +607,12 @@ public Action:Command_Top10(client, args)
 	{
 		if (StrEqual(OFFICIAL_MAPS_2[i], mname))
 		{
-			PrintToChat(client, "Found %s", OFFICIAL_MAP_NAMES_2[i]);
 			PrintTop10Times(client, OFFICIAL_MAP_NAMES_2[i], 10);
 			return Plugin_Handled;
 		}
 	}
 
+	PrintToChat(client, "Map %s not found in the database", mname);
 	return Plugin_Handled;
 }
 
@@ -2247,7 +2277,83 @@ ConnectSurvivalStatsDB()
 
 	CloseHandle2(survival_records_db);
 	survival_records_db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+
 	CloseHandle(keyval);
+}
+
+ConnectSurvivalCountsDB()
+{
+	decl String:error[256];
+
+	// connect to the test database (SQLite)
+	new Handle:keyval = CreateKeyValues("Survival Counts Database Connect");
+	KvSetString(keyval, "driver", "sqlite");
+	KvSetString(keyval, "host", "localhost");
+	KvSetString(keyval, "database", "survival_counts");
+
+	// used to set the username and pw
+	//KvSetString(keyval, "user", "root");
+	//KvSetString(keyval, "pass", "");
+
+	CloseHandle2(survival_counts_db);
+	survival_counts_db = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+	CloseHandle(keyval);
+}
+
+//--------------------------------------------------
+// PrintItemCounts
+//!
+//! \brief Queries the database for the item counts and prints it to chat.
+//!
+//! \param[in] client The client id to output to. Use -1 for print to all
+//! \param[in] map_name The map to print the top times out for. The map name should be one located in the OFFICIAL_MAP_NAMES_2 array.
+//!
+//! \returns true on success
+//--------------------------------------------------
+PrintItemCounts(client, String:map_name[])
+{
+	decl String:query[1024];
+
+	Format(query, sizeof(query), "SELECT Item.name, Count.count FROM Count INNER JOIN Map ON Map.id == Count.map_id INNER JOIN Item ON Item.id == Count.item_id WHERE Map.name == '%s' AND Count.count > 0 ORDER BY Item.id;", map_name);
+
+	new Handle:dataPack = CreateDataPack();
+	WritePackCell(dataPack, client);
+	WritePackString(dataPack, map_name);
+
+	SQL_TQuery(survival_counts_db, PostQueryPrintItemCounts, query, dataPack);
+}
+
+public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new Handle:dataPack = data;
+	decl String:buf[200];
+	decl String:item[100];
+	decl String:map_name[100];
+	new count;
+
+	// get the values out of the data pack
+	ResetPack(dataPack);
+	new client = ReadPackCell(dataPack);
+	ReadPackString(dataPack, map_name, sizeof(map_name));
+	CloseHandle(dataPack);
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToChat(client, "Error ItemCountQuery: %s", error);
+		return;
+	}
+
+	if (client > 0)
+		PrintToChat(client, "Item counts for %s", map_name);
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, item, sizeof(item));
+		count = SQL_FetchInt(result, 1);
+		Format(buf, sizeof(buf), "%s: %d", item, count);
+		if (client > 0)
+			PrintToConsole(client, buf);
+	}
 }
 
 //--------------------------------------------------
@@ -2257,7 +2363,7 @@ ConnectSurvivalStatsDB()
 //!
 //! \param[in] client The client id to output to. Use -1 for print to all
 //! \param[in] map_name The map to print the top times out for. The map name should be one located in the OFFICIAL_MAP_NAMES_2 array.
-//! \param[in] The number of records to print out
+//! \param[in] n The number of records to print out
 //!
 //! \returns true on success
 //--------------------------------------------------
@@ -2310,7 +2416,7 @@ public PostQueryPrintTop10Times(Handle:owner, Handle:result, const String:error[
 	new numplayers;
 
 	if (client > 0)
-		PrintToChat(client, "Top %d records for %s", n, map_name);
+		PrintToChat(client, "Top survival times for %s", map_name);
 
 	while (SQL_FetchRow(result))
 	{
