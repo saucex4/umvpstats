@@ -170,9 +170,10 @@ new const String:INSTAKILL_WEAPONS[][64] =
 
 // This array of game modes is a list of gamemodes that the plugin is compatible with.
 // We will add to this as various gamemode support is added
-new const NUM_GAMEMODES = 1;
+new const NUM_GAMEMODES = 2;
 new const String:GAME_MODES[][64] = {
-	"survival"
+	"survival",
+	"hardtwentysurvival"
 };
 
 
@@ -275,7 +276,7 @@ new g_roundEnded = false;
 new g_collectStats = false;
 new g_loadLate     = false;
 new g_printTankStats = true;
-new String:g_gameMode[30];
+new String:g_gameMode[100];
 // cvar handles
 
 new Handle:cv_roundTrackerState = INVALID_HANDLE;
@@ -2049,7 +2050,7 @@ bool:IsGameMode(const String:mode[]) {
 }
 
 bool:IsSupportedGameMode(const String:mode[]) {
-	for (new i = 0; i < 1; i++) {
+	for (new i = 0; i < NUM_GAMEMODES; i++) {
 		if (StrEqual(mode, GAME_MODES[i],false)) {
 			return true;
 		}
