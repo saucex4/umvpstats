@@ -169,9 +169,10 @@ new const String:INSTAKILL_WEAPONS[][64] =
 
 // This array of game modes is a list of gamemodes that the plugin is compatible with.
 // We will add to this as various gamemode support is added
-new const NUM_GAMEMODES = 1;
+new const NUM_GAMEMODES = 2;
 new const String:GAME_MODES[][64] = {
-	"survival"
+	"survival",
+	"hardtwentysurvival"
 };
 
 

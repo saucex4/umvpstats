@@ -24,12 +24,12 @@
 *            10.000 DATABASE FUNCTIONS
 * 
 * Features to add: Granular Weapon Stats (requested by phoenix)
-*                  Headshot % not count (requested by sauce)
+*                  [COMPLETE] Headshot % not count (requested by sauce)
 *                  Granular Zombie Stats (requested by sauce)
 *                  Granular Item Usage Stats (requested by sauce)
 *                  Data collection via sql and sqllite databases (requested by sauce)
 *                  Web interface for viewing stats (requested by sauce)
-*                  Add support for witches
+*                  [NEED TESTING] Add support for witches
 *                  Add support for coop, scavanenge, versus, realism, realism versus
 *                  Add mutation support
 *                  Improve name search
@@ -54,7 +54,7 @@
 #define DEBUG 0
 #define DEBUG_MVP 0
 // when this is 1, debug output displayed for the infected hurt event
-#define INFECTED_HURT_DEBUG 1
+#define INFECTED_HURT_DEBUG 0
 
 
 /* [2.000]***************PLUGIN INFORMATION*************** */
@@ -275,6 +275,8 @@ new g_survivorFFDmg[S3_MAXPLAYERS];     // friendly fire counter
 new g_survivorTotalKills[9];            // total kills
 new g_survivorTotalDmg[9];              // total damage
 
+new g_survivorCoolKills[S3_MAXPLAYERS][5]; // charger level, witch crown, hunter skeet, hunter melee skeet, tongue cut
+
 new g_survivorDmgToTank[S3_MAXPLAYERS][S3_MAXPLAYERS];
 
 new g_infectedKills[S3_MAXPLAYERS]; // stores the kills for each SI 
@@ -291,10 +293,11 @@ new g_collectStats = false;
 new g_loadLate     = false;
 new g_printTankStats = true;
 new String:g_gameMode[100];
+new bool:g_statsActive = false;
 // cvar handles
 
 new Handle:cv_roundTrackerState = INVALID_HANDLE;
-new Handle:cv_collectStats      = INVALID_HANDLE;
+new Handle:cv_statsActive       = INVALID_HANDLE; // cvar that determines if stats are collected
 new Handle:cv_printTankStats    = INVALID_HANDLE;
 
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
@@ -307,26 +310,24 @@ public OnPluginStart() {
 	// HookEvent("player_death", Event_PlayerDeath); // not needed
 	HookEvent("player_spawn", Event_PlayerSpawn);
 	HookEvent("infected_hurt", Event_InfectedHurt);
-	HookEvent("infected_death", Event_InfectedDeath);
+	// HookEvent("infected_death", Event_InfectedDeath); // cannot differentiate witch
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
 	// HookEvent("player_first_spawn", Event_PlayerFirstSpawn); //replaced with player_spawn
 	HookEvent("player_disconnect", Event_PlayerDisconnect);
 	HookEvent("player_bot_replace", Event_PlayerBotReplace);
 	HookEvent("bot_player_replace", Event_BotPlayerReplace);
+	// HookEvent("witch_killed", Event_WitchDeath);
 	
 	// Admin commands - these are not usable by non admin users
 	RegAdminCmd("sm_resetstats", Command_ResetStats,ADMFLAG_GENERIC);
-
-	// Debug commands for developers
-
-	RegAdminCmd("sm_printtracked", Command_PrintTracked, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_statson", Command_StatsOn, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_statsoff", Command_StatsOff, ADMFLAG_GENERIC);
-	RegAdminCmd("sm_printgamemode", Command_PrintGameMode, ADMFLAG_GENERIC);
-	
 	RegAdminCmd("sm_tankstatson", Command_TankStatsOn, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_tankstatsoff", Command_TankStatsOff, ADMFLAG_GENERIC);
+	
+	RegAdminCmd("sm_printtracked", Command_PrintTracked, ADMFLAG_GENERIC); 	// Debug commands for developers
+	
 	// Console/User commands - these are usable by all users
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
 	RegConsoleCmd("sm_counts", Command_ItemCounts);
@@ -336,19 +337,17 @@ public OnPluginStart() {
 	
 	// cvar processing
 	cv_roundTrackerState = FindConVar("s3_roundTrackerState");
-	cv_collectStats      = FindConVar("s3_collectStats");
+	cv_statsActive       = FindConVar("s3_statsActive");
 	cv_printTankStats    = FindConVar("s3_printTankStats");
 	
-	
-	
-	if (cv_collectStats == INVALID_HANDLE) {
-		cv_collectStats = CreateConVar("s3_collectStats", "0", "0 don't collect stats, 1 collect stats");
-		g_collectStats = false;
+	if (cv_statsActive == INVALID_HANDLE) { // if there is no stats active cvar then defaults to active or true
+		cv_statsActive = CreateConVar("s3_statsActive", "0", "0 don't collect stats, 1 collect stats");
+		g_statsActive = true;
 	}
 	
-	if (cv_printTankStats == INVALID_HANDLE) {
+	if (cv_printTankStats == INVALID_HANDLE) { // if there is no print tank stats cvar then default to active or true
 		cv_printTankStats = CreateConVar("s3_printTankStats", "0", "0 disable tank damage printout, 1 print tank damage stats after every tank");
-		g_printTankStats = false;
+		g_printTankStats = true;
 	}
 	
 	// check if plugin was loaded late
@@ -356,16 +355,30 @@ public OnPluginStart() {
 		PreparePlayersForStatsCollect();
 		new String:roundState[30];
 		GetConVarString(cv_roundTrackerState,roundState, sizeof(roundState));
-		
 		if (cv_roundTrackerState == INVALID_HANDLE) {
 			roundState = "mapstarted";
 		}
-		if (StrEqual(ROUND_STATES[10],roundState,false) ||
-			StrEqual(ROUND_STATES[9],roundState,false) ||
-			StrEqual(ROUND_STATES[7],roundState,false) ||
-			StrEqual(ROUND_STATES[6],roundState,false)) { // if the game is running make sure stats can be collected
-			
-			Command_StatsOn(0,0);
+		if (IsGameMode("coop") || IsGameMode("realism")) { // if it's a coop variant start collecting stats
+			if (g_statsActive) {
+				Command_StatsOn(0,0);
+				if (g_printTankStats) {
+					Command_TankStatsOn(0,0);
+				}
+			}
+		}
+		else { // if it's a round based game mode then determine action by round state
+			if (StrEqual(ROUND_STATES[10],roundState,false) ||
+				StrEqual(ROUND_STATES[9],roundState,false) ||
+				StrEqual(ROUND_STATES[7],roundState,false) ||
+				StrEqual(ROUND_STATES[6],roundState,false)) { // if the game is running make sure stats can be collected
+				
+				if (g_statsActive) {
+					Command_StatsOn(0,0);
+					if (g_printTankStats) {
+						Command_TankStatsOn(0,0);
+					}
+				}
+			}
 		}
 	}
 
@@ -380,7 +393,14 @@ public OnPluginEnd() {
 }
 
 public OnMapStart() {
-	Command_StatsOff(0,0);
+	if (IsSupportedGameMode(g_gameMode) && IsStatsPluginActive() && (IsGameMode("coop") || IsGameMode("realism"))) {
+		Command_StatsOn(0,0);
+		Command_ResetStats(0,0);
+		PreparePlayersForStatsCollect();
+	}
+	else {
+		Command_StatsOff(0,0);
+	}
 }
 
 // This function is called before OnPluginStart. This is to check for late load
@@ -396,7 +416,7 @@ public Action:Command_StatsOn(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// enable stats collection
 		g_collectStats = true;
-		SetConVarInt(cv_collectStats, 1);
+		SetConVarInt(cv_statsActive, 1);
 	}
 	return Plugin_Handled;
 }
@@ -405,7 +425,7 @@ public Action:Command_StatsOff(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// disable stats collection
 		g_collectStats = false;
-		SetConVarInt(cv_collectStats, 0);
+		SetConVarInt(cv_statsActive, 0);
 	}
 	return Plugin_Handled;
 }
@@ -428,23 +448,18 @@ public Action:Command_TankStatsOn(client, args) {
 	return Plugin_Handled;
 }
 
-
 public Action:Command_PrintTracked(client, args) {
-	if (IsSupportedGameMode(g_gameMode)) {
-		PrintToChatAll("g_collectStats = %s client:",(g_collectStats) ? "true" : "false");
-		for (new i = 0; i < MaxClients; i++) {
-			if(IsValidPlayerID(i) && (strlen(g_playerName[i]) > 0)) {
-				PrintToChatAll("g_playerActive = %s client: %d playerID: %d playerName: %s steamID: %s",
-				(g_playerActive[i]) ? "true" : "false", i, i, g_playerName[i], g_playerSteamID[i]);
-			}
+	PrintToChatAll("g_collectStats = %s client:",(g_collectStats) ? "true" : "false");
+	for (new i = 0; i < MaxClients; i++) {
+		if(IsValidPlayerID(i) && (strlen(g_playerName[i]) > 0)) {
+			PrintToChatAll("g_playerActive = %s client: %d playerID: %d playerName: %s steamID: %s",
+			(g_playerActive[i]) ? "true" : "false", i, i, g_playerName[i], g_playerSteamID[i]);
 		}
 	}
+
 	return Plugin_Handled;
 }
 
-public Action:Command_PrintGameMode(client, args) {
-	PrintToChatAll("GameMode = %s", g_gameMode);
-}
 
 //--------------------------------------------------
 // ResetStats
@@ -452,59 +467,61 @@ public Action:Command_PrintGameMode(client, args) {
 //! \brief Use this function to reset the kill and damage arrays to zero
 //--------------------------------------------------
 public Action:Command_ResetStats(client, args) {
-	if (IsSupportedGameMode(g_gameMode)) {
-		for (new i = 0; i < S3_MAXPLAYERS; i++) {
-			for (new j = 0; j < S3_MAXPLAYERS; j++) {
-				g_survivorDmgToTank[i][j] = 0;
-				if (j < 9) {
-					g_survivorKills[i][j] = 0;
-					g_survivorDmg[i][j] = 0;
-					if (j < 8) {
-						g_survivorHitGroupType1[i][j] = 0;
-						g_survivorHitGroupTypeSurvivor[i][j] = 0;
-					}
-					if (j < 6) {
-						g_survivorHitGroupType2[i][j] = 0;
-					}
+	for (new i = 0; i < S3_MAXPLAYERS; i++) {
+		for (new j = 0; j < S3_MAXPLAYERS; j++) {
+			g_survivorDmgToTank[i][j] = 0;
+			if (j < 9) {
+				g_survivorKills[i][j] = 0;
+				g_survivorDmg[i][j] = 0;
+				if (j < 8) {
+					g_survivorHitGroupType1[i][j] = 0;
+					g_survivorHitGroupTypeSurvivor[i][j] = 0;
 				}
-				
-				
-			}
-			if (i < 9) {
-				g_survivorTotalKills[i] = 0;
-				g_survivorTotalDmg[i] = 0;
+				if (j < 6) {
+					g_survivorHitGroupType2[i][j] = 0;
+				}
+				if (j < 5) {
+					g_survivorCoolKills[i][j] = 0;
+				}
 			}
 			
-			g_infectedKills[i] = 0;
-			g_infectedDmg[i] = 0;
-			g_infectedFFDmg[i] = 0;
-			g_infectedHealth[i] = 0;
 			
-			g_playerName[i] = "";
-			g_playerSteamID[i] = "";
-			g_playerTeam[i] = 0;
-			g_playerActive[i] = false;
-			g_survivorFFDmg[i] = 0;
-			g_playerHealth[i] = 0;
-			g_playerMaxHealth[i] = 0;
 		}
-		g_playerNextAvailableSpot = 0; 
-		ResetCIHealth();
-		
-		
-		
-		if (IsClientHuman(client)) {
-			PrintToChat(client,"\x01Stats have been \x04RESET");
+		if (i < 9) {
+			g_survivorTotalKills[i] = 0;
+			g_survivorTotalDmg[i] = 0;
 		}
-		PreparePlayersForStatsCollect();
+		
+		g_infectedKills[i] = 0;
+		g_infectedDmg[i] = 0;
+		g_infectedFFDmg[i] = 0;
+		g_infectedHealth[i] = 0;
+		
+		g_playerName[i] = "";
+		g_playerSteamID[i] = "";
+		g_playerTeam[i] = 0;
+		g_playerActive[i] = false;
+		g_survivorFFDmg[i] = 0;
+		g_playerHealth[i] = 0;
+		g_playerMaxHealth[i] = 0;
 	}
+	g_playerNextAvailableSpot = 0; 
+	ResetCIHealth();
+	
+	
+	
+	if (IsClientHuman(client)) {
+		PrintToChat(client,"\x01Stats have been \x04RESET");
+	}
+	PreparePlayersForStatsCollect();
+
 	return Plugin_Handled;
 }
 
 /* [7.000]***************CONSOLE COMMAND FUNCTIONS*************** */
 
 public Action:Command_Stats(client, args) {
-	if (IsSupportedGameMode(g_gameMode)) {
+	if (IsSupportedGameMode(g_gameMode) && IsStatsPluginActive()) {
 		new String:arg1[33], String:arg2[33];
 		new playerToPrint;
 
@@ -580,7 +597,7 @@ public Action:Command_Stats(client, args) {
 //--------------------------------------------------
 public Action:Command_ItemCounts(client, args)
 {
-	if (IsSupportedGameMode(g_gameMode)) {
+	if ((IsGameMode("survival") || IsGameMode("hardtwentysurvival")) && IsStatsPluginActive()) {
 		decl String:mname[64];
 
 		// get the current map name
@@ -608,7 +625,7 @@ public Action:Command_ItemCounts(client, args)
 //--------------------------------------------------
 public Action:Command_Top10(client, args)
 {
-	if (IsSupportedGameMode(g_gameMode)) {
+	if (IsGameMode("survival") && IsStatsPluginActive()) {
 		decl String:mname[64];
 
 		// get the current map name
@@ -634,7 +651,7 @@ public Action:Command_Top10(client, args)
 
 public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroadcast) {
 	
-	if (g_collectStats) { // collect stats if stats collection is enabled
+	if (g_collectStats && IsStatsPluginActive()) { // collect stats if stats collection is enabled
 		// other info
 		new damage   = GetEventInt(event, "dmg_health");
 		new hitgroup = GetEventInt(event, "hitgroup");
@@ -796,7 +813,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new model_id;
 	decl String:weapon[64];
 	
-	if (g_collectStats && IsValidPlayerID(attackerPID) && IsClientSurvivor(attacker)) {
+	if (g_collectStats && IsStatsPluginActive() && IsValidPlayerID(attackerPID) && IsClientSurvivor(attacker)) {
 		// get the attackers weapon
 		GetClientWeapon(attacker, weapon, sizeof(weapon));
 
@@ -874,6 +891,16 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 			RecordHitGroup(attackerPID, hitgroup, COMMON);
 		}
 		
+		// record kill if ci health is 0
+		if (CIHealth[victim] == 0) {
+			if ((model_id == 559) || (model_id == 255) ||(model_id == 441)) {
+				RecordKill(attackerPID,WITCH);
+			}
+			else {
+				RecordKill(attackerPID,COMMON);
+			}
+		}
+		
 		// survivorDmg[attacker][COMMON] += realdamage;
 
 		// check for a headshot
@@ -883,13 +910,13 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 #if INFECTED_HURT_DEBUG
 		//debug
-		PrintToChatAll("entID: %d CIHealth: %d original_damage: %d damage: %d realdamage: %d hitgroup: %d type: %d modelid: %d", victim, CIHealth[victim], original_damage, damage, realdamage, hitgroup, GetEventInt(event, "type"),model_id);
+		PrintToChatAll("entID: %d CIHealth: %d original_damage: %d damage: %d realdamage: %d hitgroup: %d type: %d modelid: %d maxhp: %d", victim, CIHealth[victim], original_damage, damage, realdamage, hitgroup, GetEventInt(event, "type"),model_id,(GetEntProp(victim, Prop_Send, "m_iMaxHealth") & 0xffff));
 #endif
 
 	}
 }
 
-
+/*
 public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 	// attacker info
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
@@ -898,41 +925,50 @@ public Event_InfectedDeath(Handle:event, const String:name[], bool:dontBroadcast
 	// Ensure that the infected health is set to zero. This should be the case in almost all situations, however, the survivor zombie has some weird damage properties that causes it to show up having health remaining even though it is dead.
 	CIHealth[victim] = 0;
 	new model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
-	PrintToChatAll("%d",model_id);
 	//Only process if the player is a legal attacker (i.e., a player)
 	if (g_collectStats && IsClientSurvivor(attacker) && IsValidPlayerID(attackerPID))
 	{
-		if ((model_id == 559) || (model_id == 255) || (model_id == 441)) {
-			RecordKill(attackerPID,WITCH);
-		}
-		else {
+		PrintToChatAll("model_id = %d, infected_id = %d",model_id, victim);
+		if (!(model_id == 559) && !(model_id == 255) && !(model_id == 441)) {
+			// RecordKill(attackerPID,WITCH);
 			RecordKill(attackerPID,COMMON);
 		}
 	}
+}*/
+
+/*
+public Event_WitchDeath(Handle:event, const String:name[], bool:dontBroadcast) {
+	new attacker = GetClientOfUserId(GetEventInt(event, "userid"));
+	new attackerPID = GetPlayerIDOfClient(attacker);
+	new victim = GetEventInt(event,"witchid");
+	CIHealth[victim] = 0;
+	RecordKill(attackerPID,WITCH);
 }
-
-
+*/
 // Round Events
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
-	Command_ResetStats(0,0);
-	g_roundEnded = false;
-	Command_StatsOn(0,0);
-	
-	// initialize survivors for stats collection
-	PreparePlayersForStatsCollect();
-	
+	if (IsStatsPluginActive() && IsSupportedGameMode(g_gameMode)) {
+		Command_ResetStats(0,0);
+		g_roundEnded = false;
+		Command_StatsOn(0,0);
+		
+		// initialize survivors for stats collection
+		PreparePlayersForStatsCollect();
+	}
 #if DEBUG
 	PrintToChatAll("\x01Event_RoundStart \x04FIRED[ResetStats(0,0); g_roundEnded = false; g_collectStats = true;]");
 #endif
 }
 
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
-	if (!g_roundEnded) {
-		PrintStats(0, 20000,false);
-		g_roundEnded = true;
+	if (IsStatsPluginActive() && IsSupportedGameMode(g_gameMode)) {
+		if (!g_roundEnded) {
+			PrintStats(0, 20000,false);
+			g_roundEnded = true;
+		}
+		Command_StatsOff(0,0);
 	}
-	Command_StatsOff(0,0);
 }
 
 // Player state events
@@ -2132,6 +2168,10 @@ bool:IsSupportedGameMode(const String:mode[]) {
 		}
 	}
 	return false;
+}
+
+bool:IsStatsPluginActive() {
+	return g_statsActive;
 }
 
 bool:RecordKill(attackerPID, victimType) {
