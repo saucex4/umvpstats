@@ -2066,11 +2066,17 @@ GetFFDamage(playerID) {
 }
 
 GetTotalSIKills(playerID) {
-	return (g_survivorKills[playerID][WITCH] + g_survivorKills[playerID][HUNTER] + g_survivorKills[playerID][JOCKEY] + g_survivorKills[playerID][CHARGER] + g_survivorKills[playerID][SPITTER] + g_survivorKills[playerID][SMOKER] + g_survivorKills[playerID][BOOMER]);
+	if (IsGameMode("coop") || IsGameMode("versus") || IsGameMode("realism")) {
+		return (g_survivorKills[playerID][WITCH] + g_survivorKills[playerID][HUNTER] + g_survivorKills[playerID][JOCKEY] + g_survivorKills[playerID][CHARGER] + g_survivorKills[playerID][SPITTER] + g_survivorKills[playerID][SMOKER] + g_survivorKills[playerID][BOOMER]);
+	}
+	return (g_survivorKills[playerID][HUNTER] + g_survivorKills[playerID][JOCKEY] + g_survivorKills[playerID][CHARGER] + g_survivorKills[playerID][SPITTER] + g_survivorKills[playerID][SMOKER] + g_survivorKills[playerID][BOOMER]);
 }
 
 GetTotalSIDamage(playerID) {
-	return (g_survivorKills[playerID][WITCH] + g_survivorDmg[playerID][HUNTER] + g_survivorDmg[playerID][JOCKEY] + g_survivorDmg[playerID][CHARGER] + g_survivorDmg[playerID][SPITTER] + g_survivorDmg[playerID][SMOKER] + g_survivorDmg[playerID][BOOMER]);
+	if (IsGameMode("coop") || IsGameMode("versus") || IsGameMode("realism")) {
+		return (g_survivorKills[playerID][WITCH] + g_survivorDmg[playerID][HUNTER] + g_survivorDmg[playerID][JOCKEY] + g_survivorDmg[playerID][CHARGER] + g_survivorDmg[playerID][SPITTER] + g_survivorDmg[playerID][SMOKER] + g_survivorDmg[playerID][BOOMER]);
+	}
+	return (g_survivorKills[playerID][HUNTER] + g_survivorKills[playerID][JOCKEY] + g_survivorKills[playerID][CHARGER] + g_survivorKills[playerID][SPITTER] + g_survivorKills[playerID][SMOKER] + g_survivorKills[playerID][BOOMER]);
 }
 
 GetTotalKillsByPlayer(playerID, victimType) {
