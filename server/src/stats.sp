@@ -2361,7 +2361,7 @@ PrintItemCounts(client, String:map_name[])
 {
 	decl String:query[1024];
 
-	Format(query, sizeof(query), "SELECT Item.name, Count.count FROM Count INNER JOIN Map ON Map.id == Count.map_id INNER JOIN Item ON Item.id == Count.item_id WHERE Map.name == '%s' AND Count.count > 0 ORDER BY Item.id;", map_name);
+	Format(query, sizeof(query), "SELECT ItemType.name, Item.name, Count.count FROM Count INNER JOIN Map ON Map.id == Count.map_id INNER JOIN Item ON Item.id == Count.item_id INNER JOIN ItemType ON Item.type_id == ItemType.id  WHERE Map.name == '%s' AND Count.count > 0 ORDER BY Item.id;", map_name);
 
 	new Handle:dataPack = CreateDataPack();
 	WritePackCell(dataPack, client);
@@ -2370,13 +2370,16 @@ PrintItemCounts(client, String:map_name[])
 	SQL_TQuery(survival_counts_db, PostQueryPrintItemCounts, query, dataPack);
 }
 
+//
 public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[], any:data)
 {
 	new Handle:dataPack = data;
 	decl String:buf[200];
 	decl String:item[100];
+	decl String:type[100];
 	decl String:map_name[100];
 	new count;
+	new num_results;
 
 	// get the values out of the data pack
 	ResetPack(dataPack);
@@ -2393,13 +2396,68 @@ public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[
 	if (client > 0)
 		PrintToChat(client, "Item counts for %s", map_name);
 
+	num_results = SQL_GetRowCount(result);
+	new Handle:results = CreateDataPack();
+
 	while (SQL_FetchRow(result))
 	{
-		SQL_FetchString(result, 0, item, sizeof(item));
-		count = SQL_FetchInt(result, 1);
-		Format(buf, sizeof(buf), "%s: %d", item, count);
-		if (client > 0)
-			PrintToConsole(client, buf);
+		SQL_FetchString(result, 0, type, sizeof(type));
+		SQL_FetchString(result, 1, item, sizeof(item));
+		count = SQL_FetchInt(result, 2);
+
+		WritePackString(results, type);
+		WritePackString(results, item);
+		WritePackCell(results, count);
+
+		//Format(buf, sizeof(buf), "%s: %d", item, count);
+		//if (client > 0)
+			//PrintToConsole(client, buf);
+	}
+
+	if (client > 0) PrintToConsole(client, "Health");
+	PrintItemCountResult(client, results, num_results, "Health");
+	if (client > 0) PrintToConsole(client, "Throwable");
+	PrintItemCountResult(client, results, num_results, "Throwable");
+	if (client > 0) PrintToConsole(client, "Melee Weapon");
+	PrintItemCountResult(client, results, num_results, "Melee Weapon");
+	if (client > 0) PrintToConsole(client, "Gun");
+	PrintItemCountResult(client, results, num_results, "Gun");
+	if (client > 0) PrintToConsole(client, "Ammo");
+	PrintItemCountResult(client, results, num_results, "Ammo");
+	if (client > 0) PrintToConsole(client, "Explosive");
+	PrintItemCountResult(client, results, num_results, "Explosive");
+
+
+	CloseHandle(results);
+}
+
+PrintItemCountResult(client, Handle:results, num_results, String:print_type[])
+{
+	decl String:item[100];
+	decl String:type[100];
+	new count;
+
+	ResetPack(results);
+	// now loop through the results however we want to and print out
+	//
+	// ItemType can be one of the following:
+	//                     Health
+	//                     Throwable
+	//                     Melee Weapon
+	//                     Gun
+	//                     Ammo
+	//                     Explosive
+	for (new i = 0; i < num_results; i++)
+	{
+		ReadPackString(results, type, sizeof(type));
+		ReadPackString(results, item, sizeof(item));
+		count = ReadPackCell(results);
+
+		if (StrEqual(type, print_type) == true)
+		{
+			if (client > 0)
+				PrintToConsole(client, "%s: %d", item, count);
+		}
 	}
 }
 
