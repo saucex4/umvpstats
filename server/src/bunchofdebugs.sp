@@ -9,7 +9,6 @@ new const TEAM_SURVIVOR   = 2;
 new const TEAM_INFECTED   = 3;
 
 new g_debug = false;
-
 public Plugin:myinfo = {
 		   name = "Bunch of Debugs",
 		 author = "sauce",
@@ -29,6 +28,7 @@ public OnPluginStart() {
 	RegAdminCmd("sm_printhumans", Command_PrintHumans, ADMFLAG_SLAY);
 	RegAdminCmd("sm_printbots", Command_PrintBots, ADMFLAG_SLAY);
 	RegAdminCmd("sm_printtime", Command_PrintRoundTime, ADMFLAG_SLAY);
+	RegAdminCmd("sm_printgamemode", Command_PrintGameMode, ADMFLAG_SLAY);
 	
 	HookEvent("player_hurt", Event_PlayerHurt);
 	HookEvent("infected_hurt", Event_InfectedHurt);
@@ -51,6 +51,12 @@ public Action:Command_EnableDebug(client, args) {
 public Action:Command_DisableDebug(client, args) {
 	g_debug = false;
 	return Plugin_Handled;
+}
+
+public Action:Command_PrintGameMode(client, args) {
+	decl String:buffer[100] = "\0";
+	GetConVarString(FindConVar("mp_gamemode"), buffer, sizeof(buffer));
+	PrintToChatAll("GameMode = %s", buffer);
 }
 
 public Action:Command_IsFakeClient(client, args) {

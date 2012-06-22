@@ -62,13 +62,15 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		new attacker = GetClientOfUserId(GetEventInt(event,"attacker"));
 		new hitgroup = GetEventInt(event, "hitgroup");
 		new damage = GetEventInt(event, "amount");
+		new victim = GetEventInt(event, "entityid");
+		new model_id = GetEntProp(victim, Prop_Send, "m_nModelIndex");
 		if (IsClientAlive(attacker)) {
 			new Float:attackerOrigin[3];
 			new Float:victimOrigin[3];
 			GetClientAbsOrigin(attacker,attackerOrigin);
 			GetEntPropVector(GetEventInt(event,"entityid"), Prop_Send, "m_vecOrigin", victimOrigin);
 			new Float:distance = GetVectorDistance(attackerOrigin, victimOrigin);
-			PrintToChatAll("\x04att: \x01%N \x05dmg \x01= \x03%d \x05hitgroup \x01= \x03%d \x05dist. \x01= \x03%f",attacker, damage, hitgroup, distance);
+			PrintToChatAll("\x04att: \x01%N \x05dmg \x01= \x03%d \x05hitgroup \x01= \x03%d \x05dist. \x01= \x03%f mid = %d",attacker, damage, hitgroup, distance, model_id);
 		}
 	}
 }
