@@ -275,6 +275,13 @@ new g_survivorFFDmg[S3_MAXPLAYERS];     // friendly fire counter
 new g_survivorTotalKills[9];            // total kills
 new g_survivorTotalDmg[9];              // total damage
 
+new g_survivorItemsUsed[S3_MAXPLAYERS][10]; // 0 pills, 1 shot, 2 medkit , 3 defib, 4 fire ammo, 5 explo ammo, 6 laser, 7 pipe, 8 molo, 9 bile
+
+new g_survivorAmmoPickedUp[S3_MAXPLAYERS];
+new g_survivorReloaded[S3_MAXPLAYERS][47];
+new g_survivorScoped[S3_MAXPLAYERS][47];
+new g_survivorShotsFired[S3_MAXPLAYERS][47]; // stores the number of shots fired
+new g_survivorShotsHit[S3_MAXPLAYERS][47]; // stores the number of shots hit
 new g_survivorCoolKills[S3_MAXPLAYERS][5]; // charger level, witch crown, hunter skeet, hunter melee skeet, tongue cut
 
 new g_survivorDmgToTank[S3_MAXPLAYERS][S3_MAXPLAYERS];
@@ -288,17 +295,20 @@ new g_infectedHealth[S3_MAXPLAYERS];
 new CIHealth[MAXENTITIES];        // Tracks health of every common infected. This is inefficient memory usage since not all entities (array elements) are common infected.
 
 // global variables that deal with current game state
-new g_roundEnded = false;
-new g_collectStats = false;
-new g_loadLate     = false;
-new g_printTankStats = true;
+new bool:g_roundEnded     = false;
+new bool:g_collectStats   = false;
+new bool:g_loadLate       = false;
+new bool:g_printTankStats = false;
 new String:g_gameMode[100];
-new bool:g_statsActive = false;
+new bool:g_statsEnabled    = false;
+new bool:g_printMVP       = false;
 // cvar handles
 
 new Handle:cv_roundTrackerState = INVALID_HANDLE;
-new Handle:cv_statsActive       = INVALID_HANDLE; // cvar that determines if stats are collected
+new Handle:cv_statsEnabled      = INVALID_HANDLE; // cvar that determines if stats are collected
 new Handle:cv_printTankStats    = INVALID_HANDLE;
+new Handle:cv_printMVP          = INVALID_HANDLE;
+
 
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
@@ -313,11 +323,18 @@ public OnPluginStart() {
 	// HookEvent("infected_death", Event_InfectedDeath); // cannot differentiate witch
 	HookEvent("round_end", Event_RoundEnd);
 	HookEvent("survival_round_start", Event_RoundStart);
+	HookEvent("scavenge_round_start", Event_RoundStart);
+	HookEvent("versus_round_start", Event_RoundStart);
 	// HookEvent("player_first_spawn", Event_PlayerFirstSpawn); //replaced with player_spawn
 	HookEvent("player_disconnect", Event_PlayerDisconnect);
 	HookEvent("player_bot_replace", Event_PlayerBotReplace);
 	HookEvent("bot_player_replace", Event_BotPlayerReplace);
 	// HookEvent("witch_killed", Event_WitchDeath);
+	
+	// HookEvent("weapon_fire", Event_WeaponFire);
+	// HookEvent("weapon_reload", Event_WeaponReload);
+	// HookEvent("weapon_zoom", Event_WeaponZoom);
+	
 	
 	// Admin commands - these are not usable by non admin users
 	RegAdminCmd("sm_resetstats", Command_ResetStats,ADMFLAG_GENERIC);
@@ -337,18 +354,39 @@ public OnPluginStart() {
 	
 	// cvar processing
 	cv_roundTrackerState = FindConVar("s3_roundTrackerState");
-	cv_statsActive       = FindConVar("s3_statsActive");
-	cv_printTankStats    = FindConVar("s3_printTankStats");
+	cv_statsEnabled      = FindConVar("s3_stats_enabled");
+	cv_printTankStats    = FindConVar("s3_print_tank_stats");
+	cv_printMVP          = FindConVar("s3_print_mvp");
 	
-	if (cv_statsActive == INVALID_HANDLE) { // if there is no stats active cvar then defaults to active or true
-		cv_statsActive = CreateConVar("s3_statsActive", "0", "0 don't collect stats, 1 collect stats");
-		g_statsActive = true;
+	// initialize
+	if (cv_printMVP == INVALID_HANDLE) {
+		cv_printMVP = CreateConVar("s3_print_mvp", "1", "0 disable mvp printout, 1 enable mvp printout");
+		SetConVarBool(cv_printMVP,true);
+		g_printMVP = true;
+		
+	}
+	else {
+		g_printMVP = GetConVarBool(cv_printMVP);
+	}
+	
+	if (cv_statsEnabled == INVALID_HANDLE) { // if there is no stats active cvar then defaults to active or true
+		cv_statsEnabled = CreateConVar("s3_stats_enabled", "1", "0 don't collect stats, 1 collect stats");
+		SetConVarBool(cv_statsEnabled,true);
+		g_statsEnabled = true;
+	}
+	else {
+		g_statsEnabled = GetConVarBool(cv_statsEnabled);
 	}
 	
 	if (cv_printTankStats == INVALID_HANDLE) { // if there is no print tank stats cvar then default to active or true
-		cv_printTankStats = CreateConVar("s3_printTankStats", "0", "0 disable tank damage printout, 1 print tank damage stats after every tank");
+		cv_printTankStats = CreateConVar("s3_print_tank_stats", "1", "0 disable tank damage printout, 1 print tank damage stats after every tank");
+		SetConVarBool(cv_printTankStats,true);
 		g_printTankStats = true;
 	}
+	else {
+		g_printTankStats = GetConVarBool(cv_printTankStats);
+	}
+	
 	
 	// check if plugin was loaded late
 	if (g_loadLate) {
@@ -359,7 +397,7 @@ public OnPluginStart() {
 			roundState = "mapstarted";
 		}
 		if (IsGameMode("coop") || IsGameMode("realism")) { // if it's a coop variant start collecting stats
-			if (g_statsActive) {
+			if (g_statsEnabled) {
 				Command_StatsOn(0,0);
 				if (g_printTankStats) {
 					Command_TankStatsOn(0,0);
@@ -372,12 +410,15 @@ public OnPluginStart() {
 				StrEqual(ROUND_STATES[7],roundState,false) ||
 				StrEqual(ROUND_STATES[6],roundState,false)) { // if the game is running make sure stats can be collected
 				
-				if (g_statsActive) {
+				if (g_statsEnabled) {
 					Command_StatsOn(0,0);
 					if (g_printTankStats) {
 						Command_TankStatsOn(0,0);
 					}
 				}
+			}
+			else {
+				Command_StatsOff(0,0);
 			}
 		}
 	}
@@ -393,6 +434,8 @@ public OnPluginEnd() {
 }
 
 public OnMapStart() {
+	GetConVarString(FindConVar("mp_gamemode"), g_gameMode, sizeof(g_gameMode));
+	PrintToServer("MAP START, coop = %s realism = %s Activeplugin = %s supported = %s",IsGameMode("coop") ? "true" : "false",IsGameMode("realsim") ? "true" : "false",IsStatsPluginActive() ? "true" : "false", IsSupportedGameMode(g_gameMode) ? "true" : "false");
 	if (IsSupportedGameMode(g_gameMode) && IsStatsPluginActive() && (IsGameMode("coop") || IsGameMode("realism"))) {
 		Command_StatsOn(0,0);
 		Command_ResetStats(0,0);
@@ -416,7 +459,6 @@ public Action:Command_StatsOn(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// enable stats collection
 		g_collectStats = true;
-		SetConVarInt(cv_statsActive, 1);
 	}
 	return Plugin_Handled;
 }
@@ -425,7 +467,6 @@ public Action:Command_StatsOff(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// disable stats collection
 		g_collectStats = false;
-		SetConVarInt(cv_statsActive, 0);
 	}
 	return Plugin_Handled;
 }
@@ -434,7 +475,6 @@ public Action:Command_TankStatsOff(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// disable tank stats
 		g_printTankStats = false;
-		SetConVarInt(cv_printTankStats, 0);
 	}
 	return Plugin_Handled;
 }
@@ -443,13 +483,12 @@ public Action:Command_TankStatsOn(client, args) {
 	if (IsSupportedGameMode(g_gameMode)) {
 		// disable tank stats
 		g_printTankStats = true;
-		SetConVarInt(cv_printTankStats, 0);
 	}
 	return Plugin_Handled;
 }
 
 public Action:Command_PrintTracked(client, args) {
-	PrintToChatAll("g_collectStats = %s client:",(g_collectStats) ? "true" : "false");
+	PrintToChatAll("g_collectStats = %s g_pluginActive = %s g_printTankStats = %s g_printMVP = %s",(g_collectStats) ? "true" : "false",(g_statsEnabled) ? "true" : "false",(g_printTankStats) ? "true" : "false",(g_printMVP) ? "true" : "false");
 	for (new i = 0; i < MaxClients; i++) {
 		if(IsValidPlayerID(i) && (strlen(g_playerName[i]) > 0)) {
 			PrintToChatAll("g_playerActive = %s client: %d playerID: %d playerName: %s steamID: %s",
@@ -467,30 +506,43 @@ public Action:Command_PrintTracked(client, args) {
 //! \brief Use this function to reset the kill and damage arrays to zero
 //--------------------------------------------------
 public Action:Command_ResetStats(client, args) {
+
 	for (new i = 0; i < S3_MAXPLAYERS; i++) {
 		for (new j = 0; j < S3_MAXPLAYERS; j++) {
 			g_survivorDmgToTank[i][j] = 0;
-			if (j < 9) {
-				g_survivorKills[i][j] = 0;
-				g_survivorDmg[i][j] = 0;
-				if (j < 8) {
-					g_survivorHitGroupType1[i][j] = 0;
-					g_survivorHitGroupTypeSurvivor[i][j] = 0;
+			if (j < 47) {
+				if (j < 10) {
+					g_survivorItemsUsed[i][j] = 0;
 				}
-				if (j < 6) {
-					g_survivorHitGroupType2[i][j] = 0;
+				if (j < 9) {
+					g_survivorKills[i][j] = 0;
+					g_survivorDmg[i][j] = 0;
+					if (j < 8) {
+						g_survivorHitGroupType1[i][j] = 0;
+						g_survivorHitGroupTypeSurvivor[i][j] = 0;
+						if (j < 6) {
+							g_survivorHitGroupType2[i][j] = 0;
+							if (j < 5) {
+								g_survivorCoolKills[i][j] = 0;
+							}
+						}
+					}
 				}
-				if (j < 5) {
-					g_survivorCoolKills[i][j] = 0;
-				}
+				g_survivorReloaded[i][j] = 0;
+				g_survivorScoped[i][j] = 0;
+				g_survivorShotsFired[i][j] = 0;
+				g_survivorShotsHit[i][j] = 0;
 			}
 			
-			
 		}
+		
 		if (i < 9) {
 			g_survivorTotalKills[i] = 0;
 			g_survivorTotalDmg[i] = 0;
 		}
+		
+		g_survivorAmmoPickedUp[i] = 0;
+		
 		
 		g_infectedKills[i] = 0;
 		g_infectedDmg[i] = 0;
@@ -544,6 +596,15 @@ public Action:Command_Stats(client, args) {
 				}
 				else if (StrEqual(arg1, "weapon", false)) {
 					PrintStats(client, 40000, false); // prints
+				}
+				else if (StrEqual(arg1, "items", false)) {
+					PrintStats(client, 50000, false); // prints
+				}
+				else if (StrEqual(arg1, "count", false)) {
+					Command_ItemCounts(client,0); // prints item counts
+				}
+				else if (StrEqual(arg1, "penis", false)) {
+					PrintToChat(client,"\x048=============================\x01D"); // prints item counts
 				}
 				else { // prints a specific player's stats summarized
 				// check to see if name matches to a client
@@ -882,6 +943,8 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 		// decrease the health of the zombie by the realdamage.
 		CIHealth[victim] -= realdamage;
 		
+		// new String:victimModel[100];
+		// GetClientModel(victim,victimModel, sizeof(victimModel));
 		if ((model_id == 559) || (model_id == 255) ||(model_id == 441)) {
 			RecordDamage(attackerPID, realdamage, WITCH);
 			RecordHitGroup(attackerPID, hitgroup, WITCH);
@@ -948,6 +1011,7 @@ public Event_WitchDeath(Handle:event, const String:name[], bool:dontBroadcast) {
 // Round Events
 
 public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
+	PrintToServer("ROUND START");
 	if (IsStatsPluginActive() && IsSupportedGameMode(g_gameMode)) {
 		Command_ResetStats(0,0);
 		g_roundEnded = false;
@@ -962,8 +1026,9 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 }
 
 public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
+	PrintToServer("ROUND END");
 	if (IsStatsPluginActive() && IsSupportedGameMode(g_gameMode)) {
-		if (!g_roundEnded) {
+		if (!g_roundEnded && IsMVPActive()) {
 			PrintStats(0, 20000,false);
 			g_roundEnded = true;
 		}
@@ -986,6 +1051,11 @@ public Action:Event_PlayerSpawn(Handle:event, String:event_name[], bool:dontBroa
 		}
 		
 		if (IsPlayerActive(playerID)) {
+			new String:model[100];
+			GetClientModel(client,model, sizeof(model));
+			if (StrContains(model,"hulk",false)) { // tank may have suicided so wipe the stats because playerid may be reused
+				WipeTankStats(playerID);
+			}
 			SetPlayerHealth(playerID, GetClientHealth(client));
 		}
 	}
@@ -1020,13 +1090,14 @@ public Event_PlayerBotReplace(Handle:event, const String:name[], bool:dontBroadc
 		}
 		else if (IsValidPlayerID(botPlayerID) && !IsPlayerActive(botPlayerID)) {
 			EnablePlayerID(botPlayerID); // enable stats for bot
-			
+			SetPlayerHealth(botPlayerID,GetClientHealth(bot));
 		}
 		// disable stats for player	
 		DisablePlayerID(playerID);
 		new String:playerName[33];
 		GetClientName(player,playerName,sizeof(playerName));
 		SetPlayerName(playerID,playerName);
+		
 	}
 }
 
@@ -1052,6 +1123,18 @@ public Event_BotPlayerReplace(Handle:event, const String:name[], bool:dontBroadc
 	}
 }
 
+
+// weapon events
+public Event_WeaponFire(Handle:event, const String:name[], bool:dontBroadcast) {
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	
+	if (IsClientSurvivor(client)) {
+		new playerID = GetPlayerIDOfClient(client);
+		new weaponID = GetEventInt(event,"weaponid");
+		new shots    = GetEventInt(event,"count");
+		RecordWeaponFire(playerID, weaponID, shots);
+	}
+}
 
 /* [9.000]***************HELPER FUNCTIONS*************** */
 
@@ -1084,13 +1167,15 @@ PrintStats(printToClient, option, bool:detail) {
 		*/
 			for (new i = 0; i < S3_MAXPLAYERS; i++) {
 				// process name
-				new String:name[20];
+				new String:name[33];
 				new client = GetClientOfPlayerID(i);
+				
 				if (client == -1) {
-					strcopy(name, 20, g_playerName[i]);
+					strcopy(name, 33, g_playerName[i]);
 				}
 				else if ((client > 0) && (client < MaxClients)) {
 					GetClientName(client,name,sizeof(name));
+					strcopy(g_playerName[i], 33,name);
 				}
 				
 				// end process name
@@ -1404,7 +1489,9 @@ PrintStats(printToClient, option, bool:detail) {
 				}
 				else if ((tempClient > 0) && (tempClient < MaxClients)) {
 					GetClientName(tempClient,name,sizeof(name));
+					strcopy(g_playerName[orderedInfo[l][0]], 33,name);
 				}
+				
 				if (printToClient == 0) {
 					if (l == 0 || (l < winners)) {
 						PrintToChatAll("\x05[MVP] \x01%13s \x03(%d) \x04T: \x01%3.0f%% \x03(%d) \x04SI: \x01%3.0f%% \x03(%d) \x04CI: \x01%3.0f%% ",name,orderedInfo[l][4],percent[l][0],orderedInfo[l][5],percent[l][1],orderedInfo[l][6],percent[l][2]);
@@ -1497,6 +1584,7 @@ PrintStats(printToClient, option, bool:detail) {
 			}
 			else if ((client > 0) && (client < MaxClients)) {
 				GetClientName(client,name,sizeof(name));
+				strcopy(g_playerName[option], 33,name);
 			}
 			// end process name
 			
@@ -1688,6 +1776,7 @@ PrintTankStats(victimPID) {
 			}
 			else if ((client > 0) && (client < MaxClients)) {
 				GetClientName(client,name,sizeof(name));
+				strcopy(g_playerName[orderedInfo[j][0]], 33,name);
 			}
 			
 			if (j == 0) { // first one
@@ -2087,6 +2176,10 @@ GetTotalDamageByPlayer(playerID, victimType) {
 	return g_survivorDmg[playerID][victimType];
 }
 
+GetBulletsFired(playerID, weaponID) {
+	return g_survivorShotsFired[playerID][weaponID];
+}
+
 
 GetPlayerIDBySteamID(const String:steamID[]) {
 	for (new i = 0; i < S3_MAXPLAYERS; i++) {
@@ -2177,8 +2270,14 @@ bool:IsSupportedGameMode(const String:mode[]) {
 }
 
 bool:IsStatsPluginActive() {
-	return g_statsActive;
+	return g_statsEnabled;
 }
+
+bool:IsMVPActive() {
+	return g_printMVP;
+}
+
+
 
 bool:RecordKill(attackerPID, victimType) {
 	if((victimType >=0) && (victimType < 9)) {
@@ -2266,6 +2365,12 @@ RecordFFDamage(playerID, damage) {
 RecordTankDamage(attackerPID, victimPID, damage) {
 	g_survivorDmgToTank[attackerPID][victimPID] += damage; 
 }
+
+RecordWeaponFire(playerID,weaponID,shots) {
+	g_survivorShotsFired[playerID][weaponID] += shots; 
+}
+
+
 
 WipeTankStats(victimPID) {
 	for (new i = 0; i < S3_MAXPLAYERS; i++) {
@@ -2420,7 +2525,7 @@ PrintItemCounts(client, String:map_name[])
 public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[], any:data)
 {
 	new Handle:dataPack = data;
-	decl String:buf[200];
+	// decl String:buf[200];
 	decl String:item[100];
 	decl String:type[100];
 	decl String:map_name[100];
