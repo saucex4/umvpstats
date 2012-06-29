@@ -252,6 +252,20 @@ new String:OFFICIAL_MAP_NAMES_2[][64] =
 	"Rooftop"
 };
 
+//! This is the number of different item types
+new const NUM_ITEM_TYPES = 6;
+
+//! This is a list of the various types of items
+new const String:ITEM_TYPES[][100] =
+{
+	"Health",
+	"Throwable",
+	"Melee Weapon",
+	"Gun",
+	"Ammo",
+	"Explosive"
+};
+
 /* [4.000]***************GLOBAL VARIABLES*************** */
 
 new Handle:survival_records_db = INVALID_HANDLE; //!< This is the SQLite database that contains the survival records
@@ -309,6 +323,8 @@ new Handle:cv_statsEnabled      = INVALID_HANDLE; // cvar that determines if sta
 new Handle:cv_printTankStats    = INVALID_HANDLE;
 new Handle:cv_printMVP          = INVALID_HANDLE;
 
+new Handle:item_count_results = INVALID_HANDLE;
+new num_item_count_results = 0;
 
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
@@ -431,6 +447,8 @@ public OnPluginStart() {
 public OnPluginEnd() {
 	CloseHandle2(survival_records_db);
 	CloseHandle2(survival_counts_db);
+	CloseHandle2(item_count_results);
+	num_item_count_results = 0;
 }
 
 public OnMapStart() {
@@ -2548,7 +2566,13 @@ public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[
 		PrintToChat(client, "Item counts for %s", map_name);
 
 	num_results = SQL_GetRowCount(result);
-	new Handle:results = CreateDataPack();
+	if (item_count_results == INVALID_HANDLE)
+	{
+		item_count_results = CreateDataPack();
+	}
+
+	num_item_count_results = 0;
+	ResetPack(item_count_results);
 
 	while (SQL_FetchRow(result))
 	{
@@ -2556,30 +2580,29 @@ public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[
 		SQL_FetchString(result, 1, item, sizeof(item));
 		count = SQL_FetchInt(result, 2);
 
-		WritePackString(results, type);
-		WritePackString(results, item);
-		WritePackCell(results, count);
+		WritePackString(item_count_results, type);
+		WritePackString(item_count_results, item);
+		WritePackCell(item_count_results, count);
 
 		//Format(buf, sizeof(buf), "%s: %d", item, count);
 		//if (client > 0)
 			//PrintToConsole(client, buf);
 	}
 
-	if (client > 0) PrintToConsole(client, "Health");
-	PrintItemCountResult(client, results, num_results, "Health");
-	if (client > 0) PrintToConsole(client, "Throwable");
-	PrintItemCountResult(client, results, num_results, "Throwable");
-	if (client > 0) PrintToConsole(client, "Melee Weapon");
-	PrintItemCountResult(client, results, num_results, "Melee Weapon");
-	if (client > 0) PrintToConsole(client, "Gun");
-	PrintItemCountResult(client, results, num_results, "Gun");
-	if (client > 0) PrintToConsole(client, "Ammo");
-	PrintItemCountResult(client, results, num_results, "Ammo");
-	if (client > 0) PrintToConsole(client, "Explosive");
-	PrintItemCountResult(client, results, num_results, "Explosive");
+	if (client > 0) PrintToConsole(client, "Health-----------------");
+	PrintItemCountResult(client, item_count_results, num_results, "Health");
+	if (client > 0) PrintToConsole(client, "Throwable--------------");
+	PrintItemCountResult(client, item_count_results, num_results, "Throwable");
+	if (client > 0) PrintToConsole(client, "Melee Weapon-----------");
+	PrintItemCountResult(client, item_count_results, num_results, "Melee Weapon");
+	if (client > 0) PrintToConsole(client, "Gun--------------------");
+	PrintItemCountResult(client, item_count_results, num_results, "Gun");
+	if (client > 0) PrintToConsole(client, "Ammo-------------------");
+	PrintItemCountResult(client, item_count_results, num_results, "Ammo");
+	if (client > 0) PrintToConsole(client, "Explosive--------------");
+	PrintItemCountResult(client, item_count_results, num_results, "Explosive");
 
-
-	CloseHandle(results);
+	ShowItemCountPanel(client, item_count_results, num_results);
 }
 
 PrintItemCountResult(client, Handle:results, num_results, String:print_type[])
@@ -2610,6 +2633,71 @@ PrintItemCountResult(client, Handle:results, num_results, String:print_type[])
 				PrintToConsole(client, "%s: %d", item, count);
 		}
 	}
+}
+
+//! \brief Used to show a menu containing the resulting item counts. The results are sent in through the a datapack.
+//! \param[in] client       The client to display the panel to
+//! \param[in] results      The datapack handle of the results
+//! \param[in] num_results  The number of results obtained from the datapack
+ShowItemCountPanel(client, Handle:results, num_results)
+{
+	new Handle:panel = CreatePanel();
+	SetPanelTitle(panel, "Item Counts");
+	DrawPanelItem(panel, "Health");
+	DrawPanelItem(panel, "Throwable");
+	DrawPanelItem(panel, "Melee Weapon");
+	DrawPanelItem(panel, "Gun");
+	DrawPanelItem(panel, "Ammo");
+	DrawPanelItem(panel, "Explosive");
+	SendPanelToClient(panel, client, ShowItemCountPanelHandler, 60);
+	CloseHandle(panel);
+}
+
+public ShowItemCountPanelHandler(Handle:menu, MenuAction:action, param1, param2)
+{
+	if (action == MenuAction_Select)
+	{
+		//PrintToConsole(param1, "You selected item %d", param2);
+		DisplayCountPanel(param1, param2);
+	}
+	else if (action == MenuAction_Cancel)
+	{
+		//PrintToServer("Client %d's menu was cancelled. Reason: %d", param1, param2);
+	}
+}
+
+//! \brief Displays the selected item counts
+//! \param[in] client The client index to display to
+//! \param[in] i      The index of the item count to show
+DisplayCountPanel(client, i)
+{
+	decl String:item[100];
+	decl String:type[100];
+	decl String:buf[50];
+	new count;
+	new Handle:panel = CreatePanel();
+	SetPanelTitle(panel, ITEM_TYPES[i]);
+
+	ResetPack(item_count_results);
+	for (new i = 0; i < num_item_count_results; i++)
+	{
+		ReadPackString(item_count_results, type, sizeof(type));
+		ReadPackString(item_count_results, item, sizeof(item));
+		count = ReadPackCell(item_count_results);
+
+		if (StrEqual(type, ITEM_TYPES[i]) == true)
+		{
+			Format(buf, sizeof(buf), "%s: %d", item, count);
+			DrawPanelItem(panel, buf);
+		}
+	}
+
+	CloseHandle(panel);
+}
+
+public DisplayCountPanelHandler(Handle:menu, MenuAction:action, param1, param2)
+{
+	// do nothing
 }
 
 //--------------------------------------------------
