@@ -48,6 +48,7 @@
 
 #include <sourcemod>
 #include <sdktools> // needed to check the state of the game
+#include <geoip>
 
 #define MAXENTITIES 2048
 #define S3_MAXPLAYERS 150 // maximum amount of players to track data for
@@ -230,6 +231,27 @@ new String:OFFICIAL_MAPS_2[][64] =
 	"c8m5_rooftop"
 };
 
+new String:CAMPAIGNS_2[][64] =
+{
+	"Dead Center",
+	"Dark Carnival",
+	"Dark Carnival",
+	"Dark Carnival",
+	"Swamp Fever",
+	"Swamp Fever",
+	"Hard Rain",
+	"Hard Rain",
+	"The Parish",
+	"The Parish",
+	"The Passing",
+	"The Passing",
+	"The Passing",
+	"The Sacrifice",
+	"The Sacrifice",
+	"No Mercy",
+	"No Mercy"
+};
+
 //! These are the human-readable map names and also the names that are stored in the survival records database - do not change
 new String:OFFICIAL_MAP_NAMES_2[][64] =
 {
@@ -266,7 +288,72 @@ new const String:ITEM_TYPES[][100] =
 	"Explosive"
 };
 
+// Constants for modelTypes-------------------------
+new const NUM_MODEL_TYPES = 7;
+new const String:MODEL_TYPES[][64] =
+{
+	"Survivor",
+	"Hunter",
+	"Smoker",
+	"Boomer",
+	"Charger",
+	"Jockey",
+	"Spitter",
+	"Tank"
+};
+
+//==================================================
+// TestDB SQL Commands
+//==================================================
+
+new const NUM_TEST_COMMANDS = 16;
+new String:sql_test_commands[][1024] =
+{
+	"DROP TABLE IF EXISTS player;",
+	"CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, country VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID));",
+	"DROP TABLE IF EXISTS weapon;",
+	"CREATE TABLE IF NOT EXISTS weapon(weaponID INTEGER, name VARCHAR(45), type INTEGER NULL, PRIMARY KEY (weaponID), UNIQUE (name));",
+	"DROP TABLE IF EXISTS maps;",
+	"CREATE TABLE IF NOT EXISTS maps(mapID INTEGER, mapName VARCHAR(45), campaignName VARCHAR(45) NULL, url VARCHAR(255) NULL, game INTEGER, PRIMARY KEY (mapID), UNIQUE (mapName, campaignName));",
+	"DROP TABLE IF EXISTS record;",
+	"CREATE TABLE IF NOT EXISTS record(recordID INTEGER, duration INTEGER, mapID INTEGER, PRIMARY KEY (recordID));",
+	"DROP TABLE IF EXISTS gameClient;",
+	"CREATE TABLE IF NOT EXISTS gameClient(entryID INTEGER, modelID INTEGER, steamID VARCHAR(20), birthTime INTEGER, deathTime INTEGER, PRIMARY KEY (entryID));",
+	"DROP TABLE IF EXISTS team;",
+	"CREATE TABLE IF NOT EXISTS team(teamID INTEGER, recordID INTEGER, teamType INTEGER, birthTime INTEGER, deathTime INTEGER, PRIMARY KEY (teamID));",
+	"DROP TABLE IF EXISTS modelTypes;",
+	"CREATE TABLE IF NOT EXISTS modelTypes(modelID INTEGER, modelName VARCHAR(40), modelType INTEGER NULL, PRIMARY KEY (modelID));",
+	"DROP TABLE IF EXISTS damage;",
+	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER, weaponID INTEGER, damageType INTEGER, kill INTEGER, attacker INTEGER, aRemainingHealth INTEGER, aMaxHealth INTEGER, aPositionX FLOAT, aPositionY FLOAT, aPositionZ FLOAT, aLatency INTEGER, aLoss INTEGER, aChoke INTEGER, aPackets INTEGER, victimSteamID VARCHAR(20), vRemainingHealth INTEGER, vMaxHealth VARCHAR(45), vPositionX FLOAT, vPositionY FLOAT, vPositionZ FLOAT, vLatency INTEGER, vLoss INTEGER, vChoke INTEGER, vPackets INTEGER, PRIMARY KEY (entryID));"
+};
+
+new NUM_DEBUG_COMMANDS = 17;
+new const String:DEBUG_COMMANDS[][128] =
+{
+	"sm_umvp_help",
+	"sm_umvp_connect_test_db",
+	"sm_umvp_add_player",
+	"sm_umvp_add_official_maps",
+	"sm_umvp_add_official_weapons",
+	"sm_umvp_add_connected_players",
+	"sm_umvp_add_weapon",
+	"sm_umvp_add_record",
+	"sm_umvp_add_team",
+	"sm_umvp_add_model_types",
+	"sm_umvp_add_game_client",
+	"sm_umvp_get_mapid",
+	"sm_umvp_output_player_table",
+	"sm_umvp_output_maps_table",
+	"sm_umvp_output_weapons_table",
+	"sm_umvp_output_records_table",
+	"sm_umvp_output_game_client_table",
+	"sm_umvp_output_model_types_table"
+};
+
 /* [4.000]***************GLOBAL VARIABLES*************** */
+
+//new Handle:db = INVALID_HANDLE;                 //!< The main database
+new Handle:test_db_sqlite = INVALID_HANDLE;     //!< SQLite database (for testing purposes the data is wiped every time the plugin reloads)
 
 new Handle:survival_records_db = INVALID_HANDLE; //!< This is the SQLite database that contains the survival records
 new Handle:survival_counts_db = INVALID_HANDLE; //!< This is the SQLite database that contains the item counts
@@ -279,6 +366,7 @@ new bool:g_playerActive[S3_MAXPLAYERS];        // if player is active or not
 new g_playerHealth[S3_MAXPLAYERS];
 new g_playerNextAvailableSpot = 0;             // the next available spot for new player
 new g_playerMaxHealth[S3_MAXPLAYERS];
+new g_gameClientID[S3_MAXPLAYERS];             //!< The game client of the player (valid only if the player is active)
 
 new g_survivorKills[S3_MAXPLAYERS][9]; // stores the kills for each survivor for each SI type
 new g_survivorDmg[S3_MAXPLAYERS][9];   // stores the dmg for each survivor for each SI type
@@ -326,6 +414,12 @@ new Handle:cv_printMVP          = INVALID_HANDLE;
 new Handle:item_count_results = INVALID_HANDLE;
 new num_item_count_results = 0;
 
+// Record variables---------------------------------
+new record_id = -1;           //!< The id of the current record in progress. This is -1 if there is no game started.
+new map_id     = -1;          //!< The id of the current map. If the map is not found, the map_id will remain at -1.
+new start_tick = 0;           //!< The starting tick of the current round
+new end_tick = 0;             //!< The ending tick of the current round
+
 /* [5.000]***************GENERAL CALLBACK FUNCTIONS*************** */
 public OnPluginStart() {
 	// store current gamemode
@@ -367,6 +461,26 @@ public OnPluginStart() {
 	RegConsoleCmd("sm_item_counts", Command_ItemCounts);
 	RegConsoleCmd("sm_top10", Command_Top10);
 	RegConsoleCmd("sm_top_stats", Command_Top10);
+
+	// Console commands for testing SQL-----------------
+	RegConsoleCmd("sm_umvp_add_player",                Command_AddPlayerToDB);
+	RegConsoleCmd("sm_umvp_help",                      Command_Help);
+	RegConsoleCmd("sm_umvp_connect_test_db",           Command_ConnectTestDB);
+	RegConsoleCmd("sm_umvp_add_official_maps",         Command_AddOfficialMaps);
+	RegConsoleCmd("sm_umvp_add_official_weapons",      Command_AddOfficialWeapons);
+	RegConsoleCmd("sm_umvp_add_connected_players",     Command_AddConnectedPlayers);
+	RegConsoleCmd("sm_umvp_add_weapon",                Command_AddWeapon);
+	RegConsoleCmd("sm_umvp_add_record",                Command_CreateRecord);
+	RegConsoleCmd("sm_umvp_add_team",                  Command_AddTeam);
+	RegConsoleCmd("sm_umvp_add_model_types",           Command_AddModelTypes);
+	RegConsoleCmd("sm_umvp_add_game_client",           Command_AddGameClient);
+	RegConsoleCmd("sm_umvp_get_mapid",                 Command_GetCurrentMapID);
+	RegConsoleCmd("sm_umvp_output_player_table",       Command_OutputPlayerTable);
+	RegConsoleCmd("sm_umvp_output_maps_table",         Command_OutputMapsTable);
+	RegConsoleCmd("sm_umvp_output_weapons_table",      Command_OutputWeaponTable);
+	RegConsoleCmd("sm_umvp_output_records_table",      Command_OutputRecordTable);
+	RegConsoleCmd("sm_umvp_output_game_client_table",  Command_OutputGameClientTable);
+	RegConsoleCmd("sm_umvp_output_model_types_table",  Command_QueryModelTypesTable);
 	
 	// cvar processing
 	cv_roundTrackerState = FindConVar("s3_roundTrackerState");
@@ -440,6 +554,11 @@ public OnPluginStart() {
 	}
 
 
+	Command_ConnectTestDB(-1, 0);
+	AddOfficialMaps(-1);
+	AddOfficialWeapons(-1);
+	AddModelTypes(-1);
+
 	ConnectSurvivalStatsDB();
 	ConnectSurvivalCountsDB();
 }
@@ -448,6 +567,7 @@ public OnPluginEnd() {
 	CloseHandle2(survival_records_db);
 	CloseHandle2(survival_counts_db);
 	CloseHandle2(item_count_results);
+	CloseHandle2(test_db_sqlite);
 	num_item_count_results = 0;
 }
 
@@ -1037,6 +1157,21 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 		
 		// initialize survivors for stats collection
 		PreparePlayersForStatsCollect();
+
+		// reset the time variables to the beginning
+		ResetTimeVars();
+
+		// Add a new record
+		CreateRecord(-1);
+
+		// Add the active players into the record - making sure that all participants are in the database
+		AddConnectedPlayers();
+
+		// Add the active team into the database
+		AddTeam(-1);
+
+		// Ensure that the players that are playing are added as game clients
+		AddGameClientSurvivors(-1, start_tick);
 	}
 #if DEBUG
 	PrintToChatAll("\x01Event_RoundStart \x04FIRED[ResetStats(0,0); g_roundEnded = false; g_collectStats = true;]");
@@ -1051,6 +1186,36 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 			g_roundEnded = true;
 		}
 		Command_StatsOff(0,0);
+	}
+
+	// update the end time
+	if (end_tick == start_tick)
+		end_tick = GetSysTickCount();
+
+	// update the time of death for the survivors in the database
+	// first obtain the players and their steam ids
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientInGame(i))
+		{
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			{
+				new playerID = GetPlayerIDOfClient(i);
+				// make sure that the player is active
+				if (g_playerActive[playerID])
+				{
+					// set the death time
+
+					// modify the gameclient and add this as their time of death
+					decl String:query[1024];
+
+					Format(query, sizeof(query), "UPDATE gameClient SET deathTime=%d WHERE entryID=%d", end_tick, g_gameClientID[playerID]);
+					SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
+				}
+			}
+		}
 	}
 }
 
@@ -1075,6 +1240,34 @@ public Action:Event_PlayerSpawn(Handle:event, String:event_name[], bool:dontBroa
 				WipeTankStats(playerID);
 			}
 			SetPlayerHealth(playerID, GetClientHealth(client));
+
+
+			// check to see if the player is in the database
+			/*
+			if (QueryForPlayer(client) == false)
+			{
+				// add this new player in the database
+				AddNewClient(client);
+			}
+			*/
+			AddNewClient(client);
+
+			// now add the player into the team table
+
+			// case: survivor
+			if (IsClientSurvivor(client))
+			{
+				decl String:steam_id[32];
+				GetClientAuthString(client, steam_id, sizeof(steam_id));
+				// add the player to the gameClient under the survivor model type
+				// first check that the record_id is valid
+				if (record_id > 0)
+				{
+					decl String:query[1024];
+					Format(query, sizeof(query), "INSERT INTO gameClient (modelID, steamID, birthTime, deathTime) VALUES (%d, \'%s\', %d, %d)", 0, steam_id, GetSysTickCount(), -1);
+					SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
+				}
+			}
 		}
 	}
 }
@@ -1090,6 +1283,16 @@ public Event_PlayerDisconnect(Handle:event, const String:name[], bool:dontBroadc
 			new String:playerName[33];
 			GetClientName(client,playerName,sizeof(playerName));
 			SetPlayerName(playerID,playerName);
+
+			// TODO: if the player disconnected before the round ended, there needs to be an indication in the sql database that this happened.
+			if (end_tick == start_tick)
+			{
+				// modify the gameclient and add this as their time of death
+				decl String:query[1024];
+
+				Format(query, sizeof(query), "UPDATE gameClient SET deathTime=%d WHERE entryID=%d", GetSysTickCount(), g_gameClientID[playerID]);
+				SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
+			}
 		}
 	}
 }
@@ -2583,6 +2786,7 @@ public PostQueryPrintItemCounts(Handle:owner, Handle:result, const String:error[
 		WritePackString(item_count_results, type);
 		WritePackString(item_count_results, item);
 		WritePackCell(item_count_results, count);
+		num_item_count_results++;
 
 		//Format(buf, sizeof(buf), "%s: %d", item, count);
 		//if (client > 0)
@@ -2643,12 +2847,10 @@ ShowItemCountPanel(client, Handle:results, num_results)
 {
 	new Handle:panel = CreatePanel();
 	SetPanelTitle(panel, "Item Counts");
-	DrawPanelItem(panel, "Health");
-	DrawPanelItem(panel, "Throwable");
-	DrawPanelItem(panel, "Melee Weapon");
-	DrawPanelItem(panel, "Gun");
-	DrawPanelItem(panel, "Ammo");
-	DrawPanelItem(panel, "Explosive");
+	for (new i = 0; i < NUM_ITEM_TYPES; i++)
+	{
+		DrawPanelItem(panel, ITEM_TYPES[i]);
+	}
 	SendPanelToClient(panel, client, ShowItemCountPanelHandler, 60);
 	CloseHandle(panel);
 }
@@ -2658,7 +2860,7 @@ public ShowItemCountPanelHandler(Handle:menu, MenuAction:action, param1, param2)
 	if (action == MenuAction_Select)
 	{
 		//PrintToConsole(param1, "You selected item %d", param2);
-		DisplayCountPanel(param1, param2);
+		DisplayCountPanel(param1, param2-1);
 	}
 	else if (action == MenuAction_Cancel)
 	{
@@ -2679,7 +2881,7 @@ DisplayCountPanel(client, i)
 	SetPanelTitle(panel, ITEM_TYPES[i]);
 
 	ResetPack(item_count_results);
-	for (new i = 0; i < num_item_count_results; i++)
+	for (new j = 0; j < num_item_count_results; j++)
 	{
 		ReadPackString(item_count_results, type, sizeof(type));
 		ReadPackString(item_count_results, item, sizeof(item));
@@ -2691,6 +2893,7 @@ DisplayCountPanel(client, i)
 			DrawPanelItem(panel, buf);
 		}
 	}
+	SendPanelToClient(panel, client, DisplayCountPanelHandler, 60);
 
 	CloseHandle(panel);
 }
@@ -2829,4 +3032,1118 @@ public PostQueryPrintTop10Times(Handle:owner, Handle:result, const String:error[
 		if (client > 0)
 			PrintToChat(client, buf2);
 	}
+}
+
+//--------------------------------------------------
+// Command_ConnectTestDB
+//!
+//! \brief Connects to the test SQLite database
+//--------------------------------------------------
+public Action:Command_ConnectTestDB(client, args)
+{
+	decl String:error[256];
+
+	// connect to the test database (SQLite)
+	new Handle:keyval = CreateKeyValues("Test Database Connect");
+	KvSetString(keyval, "driver", "sqlite");
+	KvSetString(keyval, "host", "localhost");
+	KvSetString(keyval, "database", "umvp_test");
+
+	// used to set the username and pw
+	//KvSetString(keyval, "user", "root");
+	//KvSetString(keyval, "pass", "");
+
+	CloseHandle2(test_db_sqlite);
+	test_db_sqlite = SQL_ConnectCustom(keyval, error, sizeof(error), true);
+	CloseHandle(keyval);
+
+
+	for (new i = 0; i < NUM_TEST_COMMANDS; i++)
+	{
+		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, sql_test_commands[i], client);
+	}
+	return Plugin_Handled;
+}
+
+//==================================================
+// Commands
+//==================================================
+
+//--------------------------------------------------
+// Command_Help
+//!
+//! \brief This command is used to print help of all the commands
+//--------------------------------------------------
+public Action:Command_Help(client, args)
+{
+	PrintToConsole(client, "Available Commands:");
+	for (new i = 0; i < NUM_DEBUG_COMMANDS; i++)
+	{
+		PrintToConsole(client, DEBUG_COMMANDS[i]);
+	}
+
+	// Create a menu to output these commands
+	HelpMenu(client);
+
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddTeam
+//!
+//! \brief Adds the current team consisting of the (up to 4) players to the team table
+//--------------------------------------------------
+public Action:Command_AddTeam(client, args)
+{
+	AddTeam(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddPlayerToDB
+//!
+//! \brief This command is used to add the current player to the player database
+//--------------------------------------------------
+public Action:Command_AddPlayerToDB(client, args)
+{
+	AddNewClient(client);
+	PrintToConsole(client, "Player Added");
+
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputMapsTable
+//!
+//! \brief This command is used to output the entire maps table to console.
+//--------------------------------------------------
+public Action:Command_OutputMapsTable(client, args)
+{
+	QueryMaps(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputPlayerTable
+//!
+//! \brief This command is used to output the entire player table to console.
+//--------------------------------------------------
+public Action:Command_OutputPlayerTable(client, args)
+{
+	QueryPlayers(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputWeaponTable
+//!
+//! \brief This command is used to output the entire weapons table to console.
+//--------------------------------------------------
+public Action:Command_OutputWeaponTable(client, args)
+{
+	QueryWeapons(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputRecordTable
+//!
+//! \brief This command is used to output the entire records table to console.
+//--------------------------------------------------
+public Action:Command_OutputRecordTable(client, args)
+{
+	QueryRecords(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputGameClientTable
+//!
+//! \brief This command is used to output the entire gameClient table to console.
+//--------------------------------------------------
+public Action:Command_OutputGameClientTable(client, args)
+{
+	QueryGameClients(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_QueryModelTypesTable
+//!
+//! \brief This command is used to output the entire modelTypes table to console.
+//--------------------------------------------------
+public Action:Command_QueryModelTypesTable(client, args)
+{
+	QueryModelTypes(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_CreateRecord
+//!
+//! \brief This command is used to output the entire records table to console.
+//--------------------------------------------------
+public Action:Command_CreateRecord(client, args)
+{
+	CreateRecord(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddOfficialMaps
+//!
+//! \brief This command is used to add the official maps into the maps table
+//--------------------------------------------------
+public Action:Command_AddOfficialMaps(client, args)
+{
+	AddOfficialMaps(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddWeapon
+//!
+//! \brief This command is used to add the official maps into the maps table
+//--------------------------------------------------
+public Action:Command_AddWeapon(client, args)
+{
+	decl String:weapon[128];
+	// get the client's weapon
+	GetClientWeapon(client, weapon, sizeof(weapon));
+	AddWeapon(client, weapon);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddOfficialWeapons
+//!
+//! \brief This command is used to add the official weapons into the weapons table
+//--------------------------------------------------
+public Action:Command_AddOfficialWeapons(client, args)
+{
+	AddOfficialWeapons(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddConnectedPlayers
+//!
+//! \brief This command is used to add the official weapons into the weapons table
+//--------------------------------------------------
+public Action:Command_AddConnectedPlayers(client, args)
+{
+	new numplayers = AddConnectedPlayers();
+	PrintToConsole(client, "Added %d players", numplayers);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddModelTypes
+//--------------------------------------------------
+public Action:Command_AddModelTypes(client, args)
+{
+	AddModelTypes(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_AddGameClient
+//!
+//! \brief Adds the current player as a game client. (Survivor support only a the moment)
+//--------------------------------------------------
+public Action:Command_AddGameClient(client, args)
+{
+	decl String:steamid[64];
+
+	// get the steamid, which is used to identify players
+	if (!GetClientAuthString(client, steamid, sizeof(steamid)))
+		return Plugin_Handled;
+
+	// get the time, use for birth time
+	new birth_time = GetSysTickCount();
+	new death_time = -1;
+
+	// using 0 for model id
+	new game_client_id = AddGameClient(client, steamid, 0, birth_time, death_time);
+
+	PrintToConsole(client, "The new game client id is %d", game_client_id);
+
+	return Plugin_Handled;
+}
+
+
+//--------------------------------------------------
+// Command_GetCurrentMapID
+//!
+//! \brief queries the database for the current map id and prints the result to console.
+//--------------------------------------------------
+public Action:Command_GetCurrentMapID(client, args)
+{
+	new mid = GetCurrentMapID(client);
+	PrintToConsole(client, "The current map id is %d", mid);
+	return Plugin_Handled;
+}
+
+//==================================================
+// Helper Functions and Callbacks
+//==================================================
+
+HelpMenu(client)
+{
+	new Handle:menu = CreateMenu(HelpMenuHandler);
+	for (new i = 0; i < NUM_DEBUG_COMMANDS; i++)
+	{
+		AddMenuItem(menu, DEBUG_COMMANDS[i], DEBUG_COMMANDS[i]);
+	}
+	SetMenuTitle(menu, "Commands");
+}
+
+public HelpMenuHandler(Handle:menu, MenuAction:action, param1, param2)
+{
+	if (action == MenuAction_Select)
+	{
+		FakeClientCommand(param1, DEBUG_COMMANDS[param2-1]);
+	}
+	else if (action == MenuAction_Cancel)
+	{
+		//
+	}
+}
+
+//--------------------------------------------------
+// GetCurrentMapID
+//!
+//! \brief   Queries the database for the mapID of the current map.
+//! \details Note: the variable mapID is updated by this call.
+//! \returns The mapID is returned or -1 if not found.
+//--------------------------------------------------
+GetCurrentMapID(client)
+{
+	decl String:currmap[64];
+	decl String:query[1024];
+	decl String:error[128];
+
+	// get the name of the current map
+	GetCurrentMap(currmap, sizeof(currmap));
+
+	if (client > 0)
+		PrintToConsole(client, "Searching for map %s...", currmap);
+	// query the database for this map
+	Format(query, sizeof(query), "SELECT mapID FROM maps WHERE mapName = \'%s\'", currmap);
+	SQL_LockDatabase(test_db_sqlite);
+	new Handle:result = SQL_Query(test_db_sqlite, query);
+
+	if (result == INVALID_HANDLE)
+	{
+		SQL_GetError(test_db_sqlite, error, sizeof(error));
+		if (client > 0)
+			PrintToConsole(client, "Error: %s", error);
+		map_id = -1;
+	}
+	else if (SQL_FetchRow(result))
+	{
+		map_id = SQL_FetchInt(result, 0);
+	}
+	else
+	{
+		map_id = -1;
+	}
+	SQL_UnlockDatabase(test_db_sqlite);
+
+	return map_id;
+}
+
+//--------------------------------------------------
+// CreateRecord
+//!
+//! \brief    Creates an entry in the records table for the current game
+//--------------------------------------------------
+CreateRecord(client)
+{
+	decl String:query[1024];
+
+	Format(query, sizeof(query), "INSERT INTO record (duration, mapID) VALUES (%d, %d); SELECT last_insert_rowid()", (end_tick - start_tick), map_id);
+	SQL_TQuery(test_db_sqlite, PostQueryCreateRecord, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryCreateRecord
+//!
+//! \brief Records the resulting record id after the insertion operator
+//--------------------------------------------------
+public PostQueryCreateRecord(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		if (client > 0)
+			PrintToConsole(client, "Error with query: %s", error);
+	}
+	else if (SQL_GetRowCount(result) > 0)
+	{
+		record_id = SQL_FetchInt(result, 0);
+
+		if (client > 0)
+			PrintToConsole(client, "Inserted new record %d", record_id);
+	}
+	else
+	{
+		decl String:query[1024];
+		Format(query, sizeof(query), "SELECT last_insert_rowid()", (end_tick - start_tick), map_id);
+		SQL_TQuery(test_db_sqlite, PostQueryCreateRecord, query, client);
+	}
+}
+
+//--------------------------------------------------
+// ResetTimeVars
+//!
+//! \brief Resets the variables that are related to tracking the time
+//--------------------------------------------------
+ResetTimeVars()
+{
+	start_tick = GetSysTickCount();
+	end_tick = start_tick;
+}
+
+//--------------------------------------------------
+// AddOfficialWeapons
+//!
+//! \brief Adds the official weapons into the weapons table
+//! \param[in] client The client index of the client to output results to. Use -1 to suppress output.
+//--------------------------------------------------
+AddOfficialWeapons(client)
+{
+	decl String:query[1024];
+	for (new i = 0; i < NUM_WEAPONS; i++)
+	{
+		if (client > 0)
+		{
+			PrintToConsole(client, "Inserting weapon %s...", WEAPON_NAMES[i]);
+		}
+
+		Format(query, sizeof(query), "INSERT INTO weapon (name) VALUES (\'%s\')", WEAPON_NAMES[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+	}
+}
+
+//--------------------------------------------------
+// AddWeapon
+//!
+//! \brief Adds the provided weapon into the weapons table
+//! \param[in] client the client index of the player who invoked the function
+//! \param[in] weapon the name of the weapon (null-terminated string)
+//! \param[in] length length of weapon string
+//--------------------------------------------------
+AddWeapon(client, String:weapon[])
+{
+	decl String:query[500];
+	PrintToConsole(client, "Adding weapon %s...", weapon);
+	Format(query, sizeof(query), "INSERT INTO weapon (name) VALUES (\'%s\')", weapon);
+
+	SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+}
+
+//--------------------------------------------------
+// AddOfficialMaps
+//!
+//! \brief Adds the official maps into the maps table
+//! \details Uses the global string arrays OFFICIAL_MAPS_2 and CAMPAIGNS to fill in information for the official maps.
+//--------------------------------------------------
+AddOfficialMaps(client)
+{
+	decl String:query[500];
+
+	for (new i = 0; i < NUM_OFFICIAL_MAPS_2; i++)
+	{
+		// create the SQL insert command to insert the official maps
+		Format(query, sizeof(query), "INSERT INTO maps (mapName, campaignName, game) VALUES (\'%s\', \'%s\', 2)", OFFICIAL_MAPS_2[i], CAMPAIGNS_2[i]);
+		if (client > 0)
+			PrintToConsole(client, "Adding Official Map %s...", OFFICIAL_MAPS_2[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+	}
+}
+
+//--------------------------------------------------
+// GetPlayerString
+//!
+//! \brief Gets the names of the (four) participating players and concatenates their names into a single string
+//!
+//! \param[out] buf      The string buffer to write to
+//! \param[in] length    the length of the string buffer
+//!
+//! \author guyguy
+//--------------------------------------------------
+GetPlayerString(String:buf[], length)
+{
+	decl String:tmp[256];
+	new numplayers = 0;
+
+	Format(buf, length, "");
+
+	//Calculate who is on what team
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientInGame(i))
+		{
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			{
+				// add comma to separate the player names
+				if (numplayers > 0)
+				{
+					Format(tmp, sizeof(tmp), ", ");
+					StrCat(buf, length, tmp);
+				}
+
+				// get the player name and add it
+				GetClientName(i, tmp, sizeof(tmp));
+				StrCat(buf, length, tmp);
+				numplayers++;
+			}
+		}
+	} // end for
+} // end PlayerString
+
+//--------------------------------------------------
+// AddConnectedPlayers
+//!
+//! \brief Adds the connected players that are on the survivor team (or infected team for versus) to the players tables
+//! \returns The number of players added
+//--------------------------------------------------
+AddConnectedPlayers()
+{
+	new numplayers = 0;
+
+	//Calculate who is on what team
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientSurvivor(i) || IsClientInfected(i))
+		{
+			new team = GetClientTeam(i);
+			new playerID = GetPlayerIDOfClient(i);
+
+			//if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			if (IsValidPlayerID(playerID) && IsPlayerActive(playerID))
+			{
+				AddNewClient(i);
+				numplayers++;
+			}
+		}
+	} // end for
+
+	return numplayers;
+} // end AddConnectedPlayers
+
+//--------------------------------------------------
+// AddNewClient
+//!
+//! \brief Given a clientid, checks to see if a client already exists in the Players table and if not, adds the client.
+//! \details Designed to work with the OnClientConnect command. For now, different player aliases are not considered.
+//!
+//! \param[in] client the client index
+//!
+//! \author guyguy
+//--------------------------------------------------
+AddNewClient(client)
+{
+	decl String:steamid[64];
+	decl String:ip[64];
+	decl String:country[64];
+	decl String:name[64];
+	decl String:query[500];
+
+	// ensure that the client index is valid and the client is actually connected
+	if (client < 1 || client > MaxClients || !IsClientConnected(client))
+		return;
+
+	// get the steamid, which is used to identify players
+	if (!GetClientAuthString(client, steamid, sizeof(steamid)))
+		return;
+
+	// get the ip address so the country can be determined
+	if (!GetClientIP(client, ip, sizeof(ip)))
+		return;
+
+	// get the country
+	if (!GeoipCountry(ip, country, sizeof(country)))
+		Format(country, sizeof(country), "");
+
+	// get the player name
+	if (!GetClientName(client, name, sizeof(name)))
+		return;
+
+	// create a query string for inserting the data into the table
+	Format(query, sizeof(query), "REPLACE INTO player (steamID, name, country) VALUES (\'%s\', \'%s\', \'%s\')", steamid, name, country);
+	SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+}
+
+//--------------------------------------------------
+// AddTeam
+//!
+//! \brief Adds the current team consisting of the (up to 4) players to the team table
+//--------------------------------------------------
+AddTeam(client)
+{
+	decl String:steamid[64];
+	decl String:name[64];
+	decl String:query[128];
+
+	// first obtain the players and their steam ids
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientInGame(i))
+		{
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			{
+				// get the steamid
+				GetClientAuthString(i, steamid, sizeof(steamid));
+
+				// get the player name
+				GetClientName(i, name, sizeof(name));
+
+				// TODO: get the birth and death times
+
+				// check if the record id is valid
+				if (record_id == -1)
+				{
+					if (client > 0)
+					{
+						PrintToConsole(client, "Error adding the team: the record_id is invalid. No current record exists.");
+					}
+					PrintToServer("AddTeam() error adding the team: the record_id is invalid. No current record exists.");
+					return;
+				}
+
+				Format(query, sizeof(query), "INSERT INTO team (steamID, recordID, teamType) VALUES (\'%s\', %d, %d)", steamid, record_id, TEAM_SURVIVOR);
+				if (client > 0)
+					PrintToConsole(client, "Adding the player %s", steamid);
+
+				SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+			}
+		}
+	}
+}
+
+//--------------------------------------------------
+// AddModelTypes
+//--------------------------------------------------
+AddModelTypes(client)
+{
+	decl String:query[1024];
+	for (new i = 0; i < NUM_MODEL_TYPES; i++)
+	{
+		Format(query, sizeof(query), "INSERT INTO modelTypes (modelName) VALUES (\'%s\')", MODEL_TYPES[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+	}
+}
+
+//--------------------------------------------------
+// AddGameClientSurvivors
+//!
+//! \brief Adds the current players into the gameclient table
+//! \param[in]  client     The client id to report to. -1 for none.
+//! \param[in]  birth_time The bith_time to set.
+//--------------------------------------------------
+AddGameClientSurvivors(client, birth_time)
+{
+	decl String:steamid[64];
+	decl String:name[64];
+	decl String:query[128];
+
+	// first obtain the players and their steam ids
+	for (new i = 1; i <= MaxClients; i++)
+	{
+		if (IsClientConnected(i) && IsClientInGame(i))
+		{
+			new team = GetClientTeam(i);
+
+			if (team == TEAM_SURVIVOR && !IsFakeClient(i))
+			{
+				// get the steamid
+				GetClientAuthString(i, steamid, sizeof(steamid));
+
+				// get the player name
+				GetClientName(i, name, sizeof(name));
+
+				// use the survival round start time as the birth time
+
+				// check if the record id is valid
+				if (record_id == -1)
+				{
+					if (client > 0)
+					{
+						PrintToConsole(client, "Error adding the team: the record_id is invalid. No current record exists.");
+					}
+					return;
+				}
+
+				// ensure that the player is being tracked and he is an active player
+				new playerID = GetPlayerIDOfClient(i);
+				if (playerID == -1)
+				{
+					return;
+				}
+				if (IsValidPlayerID(playerID) && IsPlayerActive(playerID))
+				{
+					// save the player's entity id
+					g_gameClientID[playerID] = AddGameClient(-1, steamid, 0, birth_time, -1);
+				}
+			}
+		}
+	}
+}
+
+//--------------------------------------------------
+// AddGameClient
+//!
+//! \brief Adds a new game client into the database
+//! \details The record used is the current record.
+//!
+//! \param[in] client          Results are reported back to this client. Use -1 for no reports.
+//! \param[in] steamid         The steamid to add (use BOT for a bot)
+//! \param[in] model_id        The modelid to add (use 0 for survivor)
+//! \param[in] birth_time      The birth time to add
+//! \param[in] death_time      The death time to add
+//!
+//! \returns The resulting game client id
+//--------------------------------------------------
+AddGameClient(client, String:steamid[], model_id, birth_time, death_time)
+{
+	decl String:error[256];
+	decl String:query[1024];
+	new game_client_id = -1;
+	Format(query, sizeof(query), "INSERT INTO gameClient (modelID, steamID, birthTime, deathTime) VALUES (%d, \'%s\', %d, %d)", model_id, steamid, birth_time, death_time);
+	//if (client > 0) PrintToConsole(client, query);
+
+	SQL_LockDatabase(test_db_sqlite);
+	new Handle:result = SQL_Query(test_db_sqlite, query);
+	if (result == INVALID_HANDLE)
+	{
+		SQL_GetError(test_db_sqlite, error, sizeof(error));
+		if (client > 0)
+			PrintToConsole(client, "Error AddGameClient: %s", error);
+	}
+	else
+	{
+		Format(query, sizeof(query), "SELECT last_insert_rowid()");
+		new Handle:result = SQL_Query(test_db_sqlite, query);
+		if (SQL_FetchRow(result) > 0)
+		{
+			game_client_id = SQL_FetchInt(result, 0);
+		}
+		CloseHandle(result);
+	}
+	SQL_UnlockDatabase(test_db_sqlite);
+
+	return game_client_id;
+}
+
+//--------------------------------------------------
+// QueryWeapons
+//!
+//! \brief Queries the database for the weapons in the weapon table
+//--------------------------------------------------
+QueryWeapons(client)
+{
+	PrintToConsole(client, "Outputting Weapons Table...");
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT weaponID, name FROM weapon ORDER BY weaponID");
+	SQL_TQuery(test_db_sqlite, PostQueryPlayers, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryWeapons
+//!
+//! \brief This is the callback used to handle the query from the QueryWeapons function. It will create a string of all the weapons in the database.
+//--------------------------------------------------
+public PostQueryWeapons(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:weaponid[64];
+	decl String:name[64];
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToConsole(client, error);
+		return;
+	}
+
+	new length = SQL_GetRowCount(result);
+
+	new Handle:dataPackHandle = CreateDataPack();
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, weaponid, sizeof(weaponid));
+		SQL_FetchString(result, 1, name, sizeof(name));
+		Format(buf, sizeof(buf), "%s %s", weaponid, name);
+		WritePackString(dataPackHandle, buf);
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryForPlayer
+//!
+//! \brief     Queries the database for a specific player.
+//! \param[in] cid     The client id of the player to query
+//! \returns           True if the player exists within the database, false otherwise
+//--------------------------------------------------
+QueryForPlayer(cid)
+{
+	decl String:steamid[32];
+	decl String:query[500];
+	bool player_exists = false;
+
+	// get the steamd for the player
+	if (GetClientAuthString(cid, steamid, sizeof(steamid)) == false)
+		return false;
+
+	// query the database for a player matching
+	Format(query, sizeof(query), "SELECT steamID FROM player WHERE steamID == '%s'", steamid);
+
+	LockDatabase(test_db_sqlite);
+
+	Handle:result = SQL_Query(test_db_sqlite, query);
+
+	if (result == INVALID_HANDLE)
+	{
+		new String error[255];
+		SQL_GetError(test_db_sqlite, error, sizeof(error));
+		PrintToServer("QueryForPlayer failed query: %s", error);
+	}
+	else
+	{
+		// if there is at least one result, true
+		if (SQL_GetRowCount(test_db_sqlite) > 0)
+		{
+			player_exists = true;
+		}
+		CloseHandle(result);
+	}
+
+	UnlockDatabase(test_db_sqlite);
+
+	return player_exists;
+}
+
+//--------------------------------------------------
+// QueryPlayers
+//!
+//! \brief Queries the database for the players in the players table
+//--------------------------------------------------
+QueryPlayers(client)
+{
+	PrintToConsole(client, "Outputting Players Table...");
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT steamID, name FROM player ORDER BY steamID");
+	SQL_TQuery(test_db_sqlite, PostQueryPlayers, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryPlayers
+//!
+//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the players in the database.
+//--------------------------------------------------
+public PostQueryPlayers(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:steamid[64];
+	decl String:name[64];
+	new client = data;
+
+	if (result == INVALID_HANDLE)
+	{
+		PrintToConsole(client, error);
+		return;
+	}
+
+	new length = SQL_GetRowCount(result);
+
+	PrintToConsole(client, "%d results", length);
+
+	new Handle:dataPackHandle = CreateDataPack();
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, steamid, sizeof(steamid));
+		SQL_FetchString(result, 1, name, sizeof(name));
+		Format(buf, sizeof(buf), "%s %s", steamid, name);
+		WritePackString(dataPackHandle, buf);
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryMaps
+//!
+//! \brief Queries the database for the maps in the maps table
+//--------------------------------------------------
+QueryMaps(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT mapName, campaignName FROM maps ORDER BY mapName");
+	SQL_TQuery(test_db_sqlite, PostQueryMaps, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryMaps
+//!
+//! \brief This is the callback used to handle the query from the QueryPlayers function. It will create a string of all the players in the database.
+//--------------------------------------------------
+public PostQueryMaps(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	decl String:mapName[64];
+	decl String:campaignName[64];
+
+	new length = 0;
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+	PrintToConsole(client, "%d Results...", SQL_GetRowCount(result));
+
+	while (SQL_FetchRow(result))
+	{
+		SQL_FetchString(result, 0, mapName, sizeof(mapName));
+		SQL_FetchString(result, 1, campaignName, sizeof(campaignName));
+		Format(buf, sizeof(buf), "%s %s", mapName, campaignName);
+		WritePackString(dataPackHandle, buf);
+		length++;
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryRecords
+//!
+//! \brief Queries the database for the records in the records table
+//--------------------------------------------------
+QueryRecords(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT recordID, duration, mapID FROM record ORDER BY recordID");
+	SQL_TQuery(test_db_sqlite, PostQueryRecords, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryRecords
+//!
+//! \brief Queries the database for the records in the records table
+//--------------------------------------------------
+public PostQueryRecords(Handle:owner, Handle:result, const String:error[], any:data)
+
+{
+	decl String:buf[256];
+	new recordID;
+	new duration;
+	new mapID;
+
+	new length = 0;
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+	if (client > 0)
+		PrintToConsole(client, "%d Results...", SQL_GetRowCount(result));
+
+	while (SQL_FetchRow(result))
+	{
+		recordID = SQL_FetchInt(result, 0);
+		duration = SQL_FetchInt(result, 1);
+		mapID = SQL_FetchInt(result, 2);
+
+		Format(buf, sizeof(buf), "id: %d dur: %d mapid: %d", recordID, duration, mapID);
+		WritePackString(dataPackHandle, buf);
+		length++;
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryGameClients
+//!
+//! \brief Queries the GameClient table for entries
+//--------------------------------------------------
+QueryGameClients(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT entryID, modelID, steamID, birthTime, deathTime FROM gameClient ORDER BY entryID");
+	SQL_TQuery(test_db_sqlite, PostQueryGameClients, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryGameClients
+//!
+//! \brief This is the callback used to handle the query from the QueryGameClients function. It will create a string of all the records in the database.
+//--------------------------------------------------
+public PostQueryGameClients(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	new entryID;
+	new modelID;
+	new String:steamID[64];
+	new birthTime;
+	new deathTime;
+
+	new length = 0;
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+	if (client > 0)
+		PrintToConsole(client, "%d Results...", SQL_GetRowCount(result));
+
+	while (SQL_FetchRow(result))
+	{
+		entryID = SQL_FetchInt(result, 0);
+		modelID = SQL_FetchInt(result, 1);
+		SQL_FetchString(result, 2, steamID, sizeof(steamID));
+		birthTime = SQL_FetchInt(result, 3);
+		deathTime = SQL_FetchInt(result, 4);
+
+		Format(buf, sizeof(buf), "id: %d modelID: %d steadid: %s birthTime: %d deathTime: %d", entryID, modelID, steamID, birthTime, deathTime);
+		WritePackString(dataPackHandle, buf);
+		length++;
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// QueryModelTypes
+//!
+//! \brief Queries the ModelTypes table for entries
+//--------------------------------------------------
+QueryModelTypes(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT modelID, modelName, modelType FROM modelTypes ORDER BY modelID");
+	SQL_TQuery(test_db_sqlite, PostQueryModelTypes, query, client);
+}
+
+//--------------------------------------------------
+// PostQueryModelTypes
+//!
+//! \brief This callback displays the results of the query
+//--------------------------------------------------
+public PostQueryModelTypes(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:buf[256];
+	new modelID;
+	new String:modelName[64];
+	new modelType;
+
+	new length = 0;
+	new client = data;
+
+	new Handle:dataPackHandle = CreateDataPack();
+	if (client > 0)
+		PrintToConsole(client, "%d Results...", SQL_GetRowCount(result));
+
+	while (SQL_FetchRow(result))
+	{
+		modelID = SQL_FetchInt(result, 0);
+		SQL_FetchString(result, 1, modelName, sizeof(modelName));
+		modelType = SQL_FetchInt(result, 2);
+
+		Format(buf, sizeof(buf), "id: %d modelName: %s modelType: %d", modelID, modelName, modelType);
+		WritePackString(dataPackHandle, buf);
+		length++;
+	}
+
+	// call output to console function
+	OutputDataPackStrings(client, dataPackHandle, length);
+
+	CloseHandle(dataPackHandle);
+}
+
+//--------------------------------------------------
+// OutputDataPackStrings
+//!
+//! \brief Outputs the strings contained within a datapack to console.
+//!
+//! \param[in] client          The client index to send to
+//! \param[in] dataPackHandle  The handle to an existing datapack that consists of only strings.
+//! \param[in] length          The number of strings contained within the datapack.
+//--------------------------------------------------
+OutputDataPackStrings(client, Handle:dataPackHandle, length)
+{
+	new i;
+	decl String:buf[250];
+
+	if (client <= 0)
+		return;
+
+	ResetPack(dataPackHandle);
+
+	for (i = 0; i < length; i++)
+	{
+		ReadPackString(dataPackHandle, buf, sizeof(buf));
+		PrintToConsole(client, buf);
+	}
+}
+
+//--------------------------------------------------
+// PostQueryPrintErrors
+//!
+//! \brief Callback that prints out any errors that occur
+//!
+//! \param[in] data the client index
+//--------------------------------------------------
+public PostQueryPrintErrors(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new client = data;
+
+	if (result == INVALID_HANDLE && client > 0)
+	{
+		if (client > 0)
+			PrintToConsole(client, error);
+
+		PrintToServer("QueryError: %s", error);
+	}
+}
+
+//--------------------------------------------------
+// PostQueryDoNothing
+//!
+//! \brief Callback required for SQL queries, which does nothing
+//--------------------------------------------------
+public PostQueryDoNothing(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	//
 }

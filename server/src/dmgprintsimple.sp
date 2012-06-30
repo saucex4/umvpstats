@@ -780,7 +780,7 @@ public Action:Command_AddOfficialWeapons(client, args)
 //--------------------------------------------------
 // Command_AddConnectedPlayers
 //!
-//! \brief This command is used to add the official weapons into the weapons table
+//! \brief This command is used to add the players into the players table
 //--------------------------------------------------
 public Action:Command_AddConnectedPlayers(client, args)
 {
