@@ -289,7 +289,7 @@ new const String:ITEM_TYPES[][100] =
 };
 
 // Constants for modelTypes-------------------------
-new const NUM_MODEL_TYPES = 7;
+#define NUM_MODEL_TYPES 7
 new const String:MODEL_TYPES[][64] =
 {
 	"Survivor",
@@ -302,6 +302,8 @@ new const String:MODEL_TYPES[][64] =
 	"Tank"
 };
 
+new MODEL_TYPE_INDICES[NUM_MODEL_TYPES];
+
 //==================================================
 // TestDB SQL Commands
 //==================================================
@@ -310,7 +312,7 @@ new const NUM_TEST_COMMANDS = 16;
 new String:sql_test_commands[][1024] =
 {
 	"DROP TABLE IF EXISTS player;",
-	"CREATE TABLE IF NOT EXISTS player(steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, country VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (steamID));",
+	"CREATE TABLE IF NOT EXISTS player(id, steamID VARCHAR(20) NOT NULL, name VARCHAR(32) NOT NULL, country VARCHAR(32) NULL, alias1 VARCHAR(32) NULL, alias2 VARCHAR(32) NULL, alias3 VARCHAR(32) NULL, alias4 VARCHAR(32) NULL, alias5 VARCHAR(32) NULL, alias6 VARCHAR(32) NULL, PRIMARY KEY (id));",
 	"DROP TABLE IF EXISTS weapon;",
 	"CREATE TABLE IF NOT EXISTS weapon(weaponID INTEGER, name VARCHAR(45), type INTEGER NULL, PRIMARY KEY (weaponID), UNIQUE (name));",
 	"DROP TABLE IF EXISTS maps;",
@@ -324,10 +326,10 @@ new String:sql_test_commands[][1024] =
 	"DROP TABLE IF EXISTS modelTypes;",
 	"CREATE TABLE IF NOT EXISTS modelTypes(modelID INTEGER, modelName VARCHAR(40), modelType INTEGER NULL, PRIMARY KEY (modelID));",
 	"DROP TABLE IF EXISTS damage;",
-	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER, weaponID INTEGER, damageType INTEGER, kill INTEGER, attacker INTEGER, aRemainingHealth INTEGER, aMaxHealth INTEGER, aPositionX FLOAT, aPositionY FLOAT, aPositionZ FLOAT, aLatency INTEGER, aLoss INTEGER, aChoke INTEGER, aPackets INTEGER, victimSteamID VARCHAR(20), vRemainingHealth INTEGER, vMaxHealth VARCHAR(45), vPositionX FLOAT, vPositionY FLOAT, vPositionZ FLOAT, vLatency INTEGER, vLoss INTEGER, vChoke INTEGER, vPackets INTEGER, PRIMARY KEY (entryID));"
+	"CREATE TABLE IF NOT EXISTS damage(entryID INTEGER, eventTimestamp INTEGER, recordID INTEGER, damageAmount INTEGER NULL, hitgroup INTEGER NULL, weaponID INTEGER NULL, damageType INTEGER NULL, kill INTEGER NULL, attacker INTEGER NULL, aRemainingHealth INTEGER NULL, aMaxHealth INTEGER NULL, aPositionX FLOAT NULL, aPositionY FLOAT NULL, aPositionZ FLOAT NULL, aLatency INTEGER NULL, aLoss INTEGER NULL, aChoke INTEGER NULL, aPackets INTEGER NULL, victimSteamID VARCHAR(20) NULL, vRemainingHealth INTEGER NULL, vMaxHealth VARCHAR(45) NULL, vPositionX FLOAT NULL, vPositionY FLOAT NULL, vPositionZ FLOAT NULL, vLatency INTEGER NULL, vLoss INTEGER NULL, vChoke INTEGER NULL, vPackets INTEGER NULL, PRIMARY KEY (entryID));"
 };
 
-new NUM_DEBUG_COMMANDS = 17;
+new NUM_DEBUG_COMMANDS = 19;
 new const String:DEBUG_COMMANDS[][128] =
 {
 	"sm_umvp_help",
@@ -347,7 +349,9 @@ new const String:DEBUG_COMMANDS[][128] =
 	"sm_umvp_output_weapons_table",
 	"sm_umvp_output_records_table",
 	"sm_umvp_output_game_client_table",
-	"sm_umvp_output_model_types_table"
+	"sm_umvp_output_model_types_table",
+	"sm_umvp_output_team_table",
+	"sm_umvp_count_kills"
 };
 
 /* [4.000]***************GLOBAL VARIABLES*************** */
@@ -367,6 +371,7 @@ new g_playerHealth[S3_MAXPLAYERS];
 new g_playerNextAvailableSpot = 0;             // the next available spot for new player
 new g_playerMaxHealth[S3_MAXPLAYERS];
 new g_gameClientID[S3_MAXPLAYERS];             //!< The game client of the player (valid only if the player is active)
+new g_playerID[S3_MAXPLAYERS];                 //!< The database player id of the current player
 
 new g_survivorKills[S3_MAXPLAYERS][9]; // stores the kills for each survivor for each SI type
 new g_survivorDmg[S3_MAXPLAYERS][9];   // stores the dmg for each survivor for each SI type
@@ -452,9 +457,9 @@ public OnPluginStart() {
 	RegAdminCmd("sm_statsoff", Command_StatsOff, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_tankstatson", Command_TankStatsOn, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_tankstatsoff", Command_TankStatsOff, ADMFLAG_GENERIC);
-	
+
 	RegAdminCmd("sm_printtracked", Command_PrintTracked, ADMFLAG_GENERIC); 	// Debug commands for developers
-	
+
 	// Console/User commands - these are usable by all users
 	RegConsoleCmd("sm_stats", Command_Stats); // accepted args "!stats <name>, !stats all, !stats mvp, !stats 
 	RegConsoleCmd("sm_counts", Command_ItemCounts);
@@ -481,6 +486,8 @@ public OnPluginStart() {
 	RegConsoleCmd("sm_umvp_output_records_table",      Command_OutputRecordTable);
 	RegConsoleCmd("sm_umvp_output_game_client_table",  Command_OutputGameClientTable);
 	RegConsoleCmd("sm_umvp_output_model_types_table",  Command_QueryModelTypesTable);
+	RegConsoleCmd("sm_umvp_output_team_table",         Command_OutputTeamTable);
+	RegConsoleCmd("sm_umvp_count_kills",               Command_CountKills);
 	
 	// cvar processing
 	cv_roundTrackerState = FindConVar("s3_roundTrackerState");
@@ -849,20 +856,30 @@ public Action:Command_Top10(client, args)
 /* [8.000]***************EVENT CALLBACK FUNCTIONS*************** */
 
 public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroadcast) {
-	
+
 	if (g_collectStats && IsStatsPluginActive()) { // collect stats if stats collection is enabled
 		// other info
 		new damage   = GetEventInt(event, "dmg_health");
 		new hitgroup = GetEventInt(event, "hitgroup");
-		
+
 		new victim = GetClientOfUserId(GetEventInt(event, "userid"));
 		new victimRemainingHealth = GetEventInt(event, "health");
 		new victimPID = GetPlayerIDOfClient(victim);
-		
+
 		new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 		new attackerPID = GetPlayerIDOfClient(attacker);
-		
-		
+
+		new model_type = 0;
+
+		// getting the weapon information
+		decl String:weapon[64];
+
+		// get the attackers weapon
+		GetClientWeapon(attacker, weapon, sizeof(weapon));
+
+		// find out what the weaponid is
+		new weapon_id = GetWeaponIndex(weapon);
+
 		if ((damage > 0) && IsClientAlive(victim) && IsClientAlive(attacker) && IsValidPlayerID(attackerPID) && IsValidPlayerID(victimPID)) { // process further if damage is 0, and victim and attacker clients are real
 			if (IsClientSurvivor(attacker)) {
 				// process victim
@@ -872,14 +889,20 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 				GetClientModel(victim,victimModel, sizeof(victimModel));
 				
 				if (victimTeam == TEAM_SURVIVOR) {
+					model_type = GetModelIndex("Survivor");
+
 					RecordFFDamage(attackerPID, damage);
 				}
 				else if (victimTeam == TEAM_INFECTED) {
-					
+
 					if (StrContains(victimModel, "Hunter", false) != -1) {
+						model_type = GetModelIndex("Hunter");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, HUNTER);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),HUNTER);
+
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,HUNTER);
@@ -888,9 +911,12 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,HUNTER);
 					}
 					else if (StrContains(victimModel, "Jockey", false) != -1) {
+						model_type = GetModelIndex("Jockey");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, JOCKEY);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),JOCKEY);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,JOCKEY);
@@ -899,9 +925,12 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,JOCKEY);
 					}
 					else if (StrContains(victimModel, "Charger", false) != -1) {
+						model_type = GetModelIndex("Charger");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, CHARGER);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),CHARGER);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,CHARGER);
@@ -910,9 +939,12 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,CHARGER);
 					}
 					else if (StrContains(victimModel, "Spitter", false) != -1) {
+						model_type = GetModelIndex("Spitter");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, SPITTER);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),SPITTER);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,SPITTER);
@@ -921,9 +953,12 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,SPITTER);
 					}
 					else if (StrContains(victimModel, "Boome", false) != -1) {
+						model_type = GetModelIndex("Boomer");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, BOOMER);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),BOOMER);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,BOOMER);
@@ -932,9 +967,12 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,BOOMER);
 					}
 					else if (StrContains(victimModel, "Smoker", false) != -1) {
+						model_type = GetModelIndex("Smoker");
+
 						if (victimRemainingHealth == 0) {
 							RecordKill(attackerPID, SMOKER);
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),SMOKER);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 						}
 						else {
 							RecordDamage(attackerPID,damage,SMOKER);
@@ -943,28 +981,44 @@ public Action:Event_PlayerHurt(Handle:event, String:event_name[], bool:dontBroad
 						RecordHitGroup(attackerPID,hitgroup,SMOKER);
 					}
 					else if (StrContains(victimModel, "Hulk", false) != -1) {
+						model_type = GetModelIndex("Tank");
+
 						if(IsTankIncapacitated(victim) && IsPlayerActive(victimPID)) {
 							// PrintToChatAll("Tank Incapped. Damage = %d, Tank health = %d",GetPlayerHealth(victimPID),GetPlayerHealth(victimPID));
-							
+
 							RecordDamage(attackerPID,GetPlayerHealth(victimPID),TANK);
 							RecordKill(attackerPID,TANK);
+							AddKill(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, GetWeaponIndex(weapon), hitgroup, 0, 0, 0);
 							RecordTankDamage(attackerPID,victimPID, GetPlayerHealth(victimPID));
-							
+
 							// Print Tank Stats
 							PrintTankStats(victimPID);
-							
+
 							// Manage Tank
 							DisablePlayerID(victimPID);
 							SetPlayerHealth(victimPID, 0);
 							WipeTankStats(victimPID);
 						}
 						else if (IsPlayerActive(victimPID)) {
-							
+
 							RecordDamage(attackerPID,damage,TANK);
 							DamagePlayer(victimPID, damage);
 							RecordTankDamage(attackerPID, victimPID, damage);
 							// PrintToChatAll("TD: Damage = %d, Tank health = %d",damage,GetPlayerHealth(victimPID));
 						}
+					}
+				}
+
+				// record the damage into the database
+				if (record_id > 0 && IsValidPlayerID(attackerPID) && weapon_id >= 0)
+				{
+					if (IsValidPlayerID(victimPID))
+					{
+						AddDamage(record_id, g_gameClientID[attackerPID], g_gameClientID[victimPID], GetSysTickCount(), damage, weapon_id, hitgroup, 0, 0, 0);
+					}
+					else
+					{
+						AddDamage(record_id, g_gameClientID[attackerPID], -1, GetSysTickCount(), damage, weapon_id, hitgroup, 0, 0, 0);
 					}
 				}
 			}
@@ -1002,7 +1056,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	new victim = GetEventInt(event, "entityid");
 	new attackerPID = GetPlayerIDOfClient(attacker);
-	
+
 	// retrieve the damage and hitgroup
 	new damage = GetEventInt(event, "amount");
 	new original_damage = damage;
@@ -1011,7 +1065,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 	new realdamage;
 	new model_id;
 	decl String:weapon[64];
-	
+
 	if (g_collectStats && IsStatsPluginActive() && IsValidPlayerID(attackerPID) && IsClientSurvivor(attacker)) {
 		// get the attackers weapon
 		GetClientWeapon(attacker, weapon, sizeof(weapon));
@@ -1080,7 +1134,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 
 		// decrease the health of the zombie by the realdamage.
 		CIHealth[victim] -= realdamage;
-		
+
 		// new String:victimModel[100];
 		// GetClientModel(victim,victimModel, sizeof(victimModel));
 		if ((model_id == 559) || (model_id == 255) ||(model_id == 441)) {
@@ -1091,7 +1145,7 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 			RecordDamage(attackerPID, realdamage, COMMON);
 			RecordHitGroup(attackerPID, hitgroup, COMMON);
 		}
-		
+
 		// record kill if ci health is 0
 		if (CIHealth[victim] == 0) {
 			if ((model_id == 559) || (model_id == 255) ||(model_id == 441)) {
@@ -1101,13 +1155,23 @@ public Event_InfectedHurt(Handle:event, const String:name[], bool:dontBroadcast)
 				RecordKill(attackerPID,COMMON);
 			}
 		}
-		
+
 		// survivorDmg[attacker][COMMON] += realdamage;
 
 		// check for a headshot
 		// if (hitgroup == 1) {
 			// survivorHeadShots[attacker]++;
 		// }
+
+		// find out what the weaponid is
+		new weapon_id = GetWeaponIndex(weapon);
+
+		// For now use -1 for the victom id, since the victim is common infected (bot)
+		// TODO: for now, the coordinates are put in 0,0,0
+		if (record_id > 0 && IsValidPlayerID(attackerPID) && weapon_id >= 0)
+		{
+			AddDamage(record_id, g_gameClientID[attackerPID], -1, GetSysTickCount(), realdamage, weapon_id, hitgroup, 0, 0, 0);
+		}
 
 #if INFECTED_HURT_DEBUG
 		//debug
@@ -1161,6 +1225,8 @@ public Event_RoundStart(Handle:event, const String:name[], bool:dontBroadcast) {
 		// reset the time variables to the beginning
 		ResetTimeVars();
 
+		GetCurrentMapID(-1);
+
 		// Add a new record
 		CreateRecord(-1);
 
@@ -1191,6 +1257,14 @@ public Event_RoundEnd(Handle:event, const String:name[], bool:dontBroadcast) {
 	// update the end time
 	if (end_tick == start_tick)
 		end_tick = GetSysTickCount();
+
+	// update the end time for the record
+	if (record_id != -1)
+	{
+		decl String:query[1024];
+		Format(query, sizeof(query), "UPDATE record SET duration = %d WHERE recordID = %d", end_tick - start_tick, record_id);
+		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
+	}
 
 	// update the time of death for the survivors in the database
 	// first obtain the players and their steam ids
@@ -1255,7 +1329,7 @@ public Action:Event_PlayerSpawn(Handle:event, String:event_name[], bool:dontBroa
 			// now add the player into the team table
 
 			// case: survivor
-			if (IsClientSurvivor(client))
+			if (IsClientSurvivor(client) || IsClientInfected(client))
 			{
 				decl String:steam_id[32];
 				GetClientAuthString(client, steam_id, sizeof(steam_id));
@@ -3083,7 +3157,7 @@ public Action:Command_Help(client, args)
 	}
 
 	// Create a menu to output these commands
-	HelpMenu(client);
+	//HelpMenu(client);
 
 	return Plugin_Handled;
 }
@@ -3110,6 +3184,16 @@ public Action:Command_AddPlayerToDB(client, args)
 	PrintToConsole(client, "Player Added");
 
 	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_CountKills
+//!
+//! \brief This command is used to count the number of kills obtained by each of the participating players
+//--------------------------------------------------
+public Action:Command_CountKills(client, args)
+{
+	CountKills(client);
 }
 
 //--------------------------------------------------
@@ -3164,6 +3248,17 @@ public Action:Command_OutputRecordTable(client, args)
 public Action:Command_OutputGameClientTable(client, args)
 {
 	QueryGameClients(client);
+	return Plugin_Handled;
+}
+
+//--------------------------------------------------
+// Command_OutputTeamTable
+//!
+//! \brief This command outputs all entries of the team table
+//--------------------------------------------------
+public Action:Command_OutputTeamTable(client, args)
+{
+	QueryTeamTable(client);
 	return Plugin_Handled;
 }
 
@@ -3271,7 +3366,6 @@ public Action:Command_AddGameClient(client, args)
 	return Plugin_Handled;
 }
 
-
 //--------------------------------------------------
 // Command_GetCurrentMapID
 //!
@@ -3288,6 +3382,44 @@ public Action:Command_GetCurrentMapID(client, args)
 // Helper Functions and Callbacks
 //==================================================
 
+//--------------------------------------------------
+// GetWeaponIndex
+//!
+//! \brief Given a string, looks up the weapon index in the weapons array
+//! \returns index of the match or -1 if not found
+//--------------------------------------------------
+GetWeaponIndex(const String:weapon_name[])
+{
+	for (new i = 0; i < NUM_WEAPONS; i++)
+	{
+		if (StrContains(WEAPON_NAMES[i], weapon_name, false) != -1)
+		{
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+//--------------------------------------------------
+// GetModelIndex
+//!
+//! \brief Given a string, looks up the model_types array for a match and returns the index of the match
+//! \returns index of the match or -1 if not found
+//--------------------------------------------------
+GetModelIndex(const String:model_name[])
+{
+	for (new i = 0; i < NUM_MODEL_TYPES; i++)
+	{
+		if (strcmp(MODEL_TYPES[i], model_name, false) == 0)
+		{
+			return MODEL_TYPE_INDICES[i];
+		}
+	}
+
+	return -1;
+}
+
 HelpMenu(client)
 {
 	new Handle:menu = CreateMenu(HelpMenuHandler);
@@ -3296,6 +3428,9 @@ HelpMenu(client)
 		AddMenuItem(menu, DEBUG_COMMANDS[i], DEBUG_COMMANDS[i]);
 	}
 	SetMenuTitle(menu, "Commands");
+
+	DisplayMenu(menu, client, MENU_TIME_FOREVER);
+	CloseHandle(menu);
 }
 
 public HelpMenuHandler(Handle:menu, MenuAction:action, param1, param2)
@@ -3562,21 +3697,97 @@ AddNewClient(client)
 	if (!GetClientAuthString(client, steamid, sizeof(steamid)))
 		return;
 
+	// get the player name
+	if (!GetClientName(client, name, sizeof(name)))
+		return;
+
 	// get the ip address so the country can be determined
 	if (!GetClientIP(client, ip, sizeof(ip)))
-		return;
+		Format(ip, sizeof(ip), "");
 
 	// get the country
 	if (!GeoipCountry(ip, country, sizeof(country)))
 		Format(country, sizeof(country), "");
 
-	// get the player name
-	if (!GetClientName(client, name, sizeof(name)))
-		return;
+	new Handle:datapack = CreateDataPack();
 
-	// create a query string for inserting the data into the table
-	Format(query, sizeof(query), "REPLACE INTO player (steamID, name, country) VALUES (\'%s\', \'%s\', \'%s\')", steamid, name, country);
-	SQL_TQuery(test_db_sqlite, PostQueryDoNothing, query);
+	WritePackCell(datapack, 0);
+	WritePackCell(datapack, client);
+	WritePackString(datapack, steamid);
+	WritePackString(datapack, name);
+	WritePackString(datapack, ip);
+	WritePackString(datapack, country);
+
+	// first check to see if there are any existing values
+	Format(query, sizeof(query), "SELECT * FROM player WHERE steamID == '%s' AND name == '%s'");
+	SQL_TQuery(test_db_sqlite, PostQueryAddNewClient, query, datapack);
+}
+
+public PostQueryAddNewClient(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new step;
+	new client;
+	decl String:steamid[64];
+	decl String:ip[64];
+	decl String:country[64];
+	decl String:name[64];
+	decl String:query[500];
+
+	new Handle:datapack = data;
+	ResetPack(datapack);
+	step = ReadPackCell(datapack);
+	client = ReadPackCell(datapack);
+	ReadPackString(datapack, steamid, sizeof(steamid));
+	ReadPackString(datapack, name, sizeof(name));
+	ReadPackString(datapack, ip, sizeof(ip));
+	ReadPackString(datapack, country, sizeof(country));
+	CloseHandle(datapack);
+
+	if (result == INVALID_HANDLE)
+	{
+		if (client > 0)
+			PrintToConsole(client, "PostQueryAddModelTypes: %s", error);
+
+		PrintToServer("QueryError: %s", error);
+		CloseHandle(datapack);
+		return;
+	}
+
+	switch (step)
+	{
+		case 0:
+		{
+			if (SQL_GetRowCount(result) == 0)
+			{
+				new Handle:datapack = CreateDataPack();
+
+				WritePackCell(datapack, 1);
+				WritePackCell(datapack, client);
+				WritePackString(datapack, steamid);
+				WritePackString(datapack, name);
+				WritePackString(datapack, ip);
+				WritePackString(datapack, country);
+
+				// create a query string for inserting the data into the table
+				Format(query, sizeof(query), "INSERT INTO player (steamID, name, country) VALUES (\'%s\', \'%s\', \'%s\')", steamid, name, country);
+				SQL_TQuery(test_db_sqlite, PostQueryAddNewClient, query, datapack);
+			}
+		}
+
+		case 1:
+		{
+			SQL_LockDatabase(test_db_sqlite);
+			Format(query, sizeof(query), "SELECT last_insert_rowid()");
+			new Handle:result2 = SQL_Query(test_db_sqlite, query);
+			if (SQL_FetchRow(result2))
+			{
+				if (client > 0)
+					g_playerID[GetPlayerIDOfClient(client)] = SQL_FetchInt(result2, 0);
+			}
+			CloseHandle(result2);
+			SQL_UnlockDatabase(test_db_sqlite);
+		}
+	}
 }
 
 //--------------------------------------------------
@@ -3634,10 +3845,46 @@ AddTeam(client)
 AddModelTypes(client)
 {
 	decl String:query[1024];
+
 	for (new i = 0; i < NUM_MODEL_TYPES; i++)
 	{
 		Format(query, sizeof(query), "INSERT INTO modelTypes (modelName) VALUES (\'%s\')", MODEL_TYPES[i]);
-		SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, client);
+		new Handle:datapack = CreateDataPack();
+		WritePackCell(datapack, client);
+		WritePackCell(datapack, i);
+		SQL_TQuery(test_db_sqlite, PostQueryAddModelTypes, query, datapack);
+	}
+}
+
+//--------------------------------------------------
+// PostQueryAddModelTypes
+//--------------------------------------------------
+public PostQueryAddModelTypes(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	decl String:query[1024];
+	new Handle:datapack = data;
+	ResetPack(datapack);
+	new client = ReadPackCell(datapack);
+	new i = ReadPackCell(datapack);
+
+	if (result == INVALID_HANDLE)
+	{
+		if (client > 0)
+			PrintToConsole(client, "PostQueryAddModelTypes: %s", error);
+
+		PrintToServer("QueryError: %s", error);
+		CloseHandle(datapack);
+	}
+
+	else if (SQL_GetRowCount(result) == 0)
+	{
+		Format(query, sizeof(query), "SELECT modelID, modelName FROM modelTypes WHERE modelName == '%s'", MODEL_TYPES[i]);
+		SQL_TQuery(test_db_sqlite, PostQueryAddModelTypes, query, datapack);
+	}
+	else
+	{
+		MODEL_TYPE_INDICES[i] = SQL_FetchInt(result, 0);
+		CloseHandle(datapack);
 	}
 }
 
@@ -3731,15 +3978,44 @@ AddGameClient(client, String:steamid[], model_id, birth_time, death_time)
 	{
 		Format(query, sizeof(query), "SELECT last_insert_rowid()");
 		new Handle:result = SQL_Query(test_db_sqlite, query);
-		if (SQL_FetchRow(result) > 0)
+		if (SQL_FetchRow(result))
 		{
-			game_client_id = SQL_FetchInt(result, 0);
+			// TODO: this needs error checking
+			g_playerID[GetPlayerIDBySteamID(steamid)] = SQL_FetchInt(result, 0);
 		}
 		CloseHandle(result);
 	}
 	SQL_UnlockDatabase(test_db_sqlite);
 
 	return game_client_id;
+}
+
+//--------------------------------------------------
+// AddKill
+//!
+//! \brief Adds an entry into the damage table with the given values. It is recorded as a kill.
+//--------------------------------------------------
+AddKill(record_id, attacker_id, victim_id, time, damage, weapon_id, hitgroup, x, y, z)
+{
+	decl String:error[256];
+	decl String:query[1024];
+
+	Format(query, sizeof(query), "INSERT INTO damage (eventTimestamp, recordID, damageAmount, hitgroup, weaponID, kill, aPositionX, aPositionY, aPositionZ) VALUES (%d, %d, %d, %d, %d, 1, %f, %f, %f)", time, record_id, damage, hitgroup, weapon_id, x, y, z);
+	SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
+}
+
+//--------------------------------------------------
+// AddDamage
+//!
+//! \brief Adds an entry into the damage table with the given values
+//--------------------------------------------------
+AddDamage(record_id, attacker_id, victim_id, time, damage, weapon_id, hitgroup, x, y, z)
+{
+	decl String:error[256];
+	decl String:query[1024];
+
+	Format(query, sizeof(query), "INSERT INTO damage (eventTimestamp, recordID, damageAmount, hitgroup, weaponID, kill, aPositionX, aPositionY, aPositionZ) VALUES (%d, %d, %d, %d, %d, %f, %f, %f)", time, record_id, damage, hitgroup, weapon_id, 0, x, y, z);
+	SQL_TQuery(test_db_sqlite, PostQueryPrintErrors, query, -1);
 }
 
 //--------------------------------------------------
@@ -4093,6 +4369,113 @@ public PostQueryModelTypes(Handle:owner, Handle:result, const String:error[], an
 }
 
 //--------------------------------------------------
+// QueryTeamTable
+//!
+//! \brief Used to query the team table for entries. It will output the entries to the client's console.
+//--------------------------------------------------
+QueryTeamTable(client)
+{
+	decl String:query[500];
+
+	// create a query string for querying the data
+	Format(query, sizeof(query), "SELECT teamID, recordID, teamType, birthTime, deathTime FROM team ORDER BY recordID, teamID");
+	SQL_TQuery(test_db_sqlite, PostQueryTeamTable, query, client);
+}
+
+public PostQueryTeamTable(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new client = data;
+
+	decl String:buf[512];
+	new teamID;
+	new recordID;
+	new teamType;
+	new birthTime;
+	new deathTime;
+
+	if (result == INVALID_HANDLE)
+	{
+		if (client > 0)
+			PrintToConsole(client, "error %s", error);
+		return;
+	}
+
+	while (SQL_FetchRow(result))
+	{
+		teamID    = SQL_FetchInt(result, 0);
+		recordID  = SQL_FetchInt(result, 1);
+		teamType  = SQL_FetchInt(result, 2);
+		birthTime = SQL_FetchInt(result, 3);
+		deathTime = SQL_FetchInt(result, 4);
+
+		Format(buf, sizeof(buf), "teamID: %d recordID: %d teamType: %d birthTime: %d deathTime: %d", teamID, recordID, teamType, birthTime, deathTime);
+		if (client > 0)
+			PrintToConsole(client, buf);
+	}
+}
+
+//--------------------------------------------------
+// CountKills
+//
+//! \brief Counts the kills for the different clients and reports it.
+//! \details This is a debug function to test the functionality of the database. Compare this with regular kill stats.
+//! \param[in] client  The client to report results to
+//--------------------------------------------------
+CountKills(client)
+{
+	decl String:query[600];
+	// make sure the record_id is valid
+	if (record_id <= 0)
+		return;
+
+	// count the kills for each individual (active) player
+	// TODO: right now, only survivors are supported
+	for (new i = 0; i < S3_MAXPLAYERS; i++)
+	{
+		new id = GetClientOfPlayerID(i);
+		if (IsClientAlive(id) && IsValidPlayerID(i))
+		{
+			new Handle:datapack = CreateDataPack();
+			WritePackCell(datapack, client);
+			WritePackCell(datapack, i);
+
+			// find all the damage entries that are kills
+			Format(query, sizeof(query), "SELECT * FROM damage WHERE recordID == %d AND kill == 1 AND attacker == %d", record_id, g_playerID[i]);
+			SQL_TQuery(test_db_sqlite, PostQueryCountKills, query, datapack);
+		}
+	}
+}
+
+//--------------------------------------------------
+// PostQueryCountKills
+//--------------------------------------------------
+public PostQueryCountKills(Handle:owner, Handle:result, const String:error[], any:data)
+{
+	new Handle:datapack = data;
+
+	ResetPack(datapack);
+	new client = ReadPackCell(datapack);
+	new i = ReadPackCell(datapack);
+
+	if (result == INVALID_HANDLE)
+	{
+		if (client > 0)
+			PrintToConsole(client, "PostQueryCountKills error: %s", error);
+		PrintToServer("PostQueryCountKills error: %s", error);
+		CloseHandle(datapack);
+		return;
+	}
+
+	new count = SQL_GetRowCount(result);
+	if (client > 0)
+	{
+		PrintToChat(client, "Player %s (%d) has %d kills", g_playerName[i], i, count);
+	}
+
+	CloseHandle(datapack);
+}
+
+//--------------------------------------------------
 // OutputDataPackStrings
 //!
 //! \brief Outputs the strings contained within a datapack to console.
@@ -4129,7 +4512,7 @@ public PostQueryPrintErrors(Handle:owner, Handle:result, const String:error[], a
 {
 	new client = data;
 
-	if (result == INVALID_HANDLE && client > 0)
+	if (result == INVALID_HANDLE)
 	{
 		if (client > 0)
 			PrintToConsole(client, error);
